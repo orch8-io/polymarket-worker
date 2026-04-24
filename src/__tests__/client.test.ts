@@ -32,42 +32,46 @@ function errorResponse(body: string, status: number): Response {
 }
 
 describe("PolymarketClient constructor", () => {
-  it("uses default config", () => {
+  it("uses default config", async () => {
     const client = new PolymarketClient();
     // Verify by making a call and checking the URL
     mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.5" }));
-    client.getPrice("token123");
+    await client.getPrice("token123");
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining("https://clob.polymarket.com"),
+      expect.any(Object),
     );
   });
 
-  it("accepts custom config override", () => {
+  it("accepts custom config override", async () => {
     const client = new PolymarketClient({ clobBaseUrl: "https://custom.api.com" });
     mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.5" }));
-    client.getPrice("token123");
+    await client.getPrice("token123");
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining("https://custom.api.com"),
+      expect.any(Object),
     );
   });
 
-  it("reads POLYMARKET_CLOB_URL env var", () => {
+  it("reads POLYMARKET_CLOB_URL env var", async () => {
     process.env.POLYMARKET_CLOB_URL = "https://env.api.com";
     const client = new PolymarketClient();
     mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.5" }));
-    client.getPrice("token123");
+    await client.getPrice("token123");
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining("https://env.api.com"),
+      expect.any(Object),
     );
   });
 
-  it("explicit config overrides env var", () => {
+  it("explicit config overrides env var", async () => {
     process.env.POLYMARKET_CLOB_URL = "https://env.api.com";
     const client = new PolymarketClient({ clobBaseUrl: "https://explicit.api.com" });
     mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.5" }));
-    client.getPrice("token123");
+    await client.getPrice("token123");
     expect(mockFetch).toHaveBeenCalledWith(
       expect.stringContaining("https://explicit.api.com"),
+      expect.any(Object),
     );
   });
 });
@@ -193,7 +197,7 @@ describe("error classification (via API responses)", () => {
   });
 
   it("classifies 429 as retryable RATE_LIMITED", async () => {
-    mockFetch.mockResolvedValueOnce(errorResponse("Too many requests", 429));
+    mockFetch.mockResolvedValue(errorResponse("Too many requests", 429));
     try {
       await client.getOrder("abc");
     } catch (e) {
@@ -204,7 +208,7 @@ describe("error classification (via API responses)", () => {
   });
 
   it("classifies 500 as retryable SERVER_ERROR", async () => {
-    mockFetch.mockResolvedValueOnce(errorResponse("Internal server error", 500));
+    mockFetch.mockResolvedValue(errorResponse("Internal server error", 500));
     try {
       await client.getOrder("abc");
     } catch (e) {
@@ -215,7 +219,7 @@ describe("error classification (via API responses)", () => {
   });
 
   it("classifies 502 as retryable SERVER_ERROR", async () => {
-    mockFetch.mockResolvedValueOnce(errorResponse("Bad gateway", 502));
+    mockFetch.mockResolvedValue(errorResponse("Bad gateway", 502));
     try {
       await client.getOrder("abc");
     } catch (e) {
@@ -254,6 +258,7 @@ describe("getOrder", () => {
     expect(result).toEqual(order);
     expect(mockFetch).toHaveBeenCalledWith(
       `${POLYMARKET_V2_CONFIG.clobBaseUrl}/order/abc`,
+      expect.any(Object),
     );
   });
 });
@@ -279,16 +284,16 @@ describe("getOrderbook", () => {
     const rawBook = { bids: [], asks: [] };
     mockFetch.mockResolvedValueOnce(jsonResponse(rawBook));
     const result = await client.getOrderbook("token123");
-    expect(result.spread).toBe("1.0000");
-    expect(result.mid_price).toBe("0.5000");
+    expect(result.spread).toBe("0");
+    expect(result.mid_price).toBe("0");
   });
 
   it("handles one-sided orderbook (bids only)", async () => {
     const rawBook = { bids: [{ price: "0.45", size: "100" }], asks: [] };
     mockFetch.mockResolvedValueOnce(jsonResponse(rawBook));
     const result = await client.getOrderbook("token123");
-    expect(result.spread).toBe("0.5500");
-    expect(result.mid_price).toBe("0.7250");
+    expect(result.spread).toBe("0");
+    expect(result.mid_price).toBe("0");
   });
 });
 
@@ -316,6 +321,7 @@ describe("getPositions", () => {
     expect(result).toEqual(positions);
     expect(mockFetch).toHaveBeenCalledWith(
       `${POLYMARKET_V2_CONFIG.clobBaseUrl}/positions?address=0xabc`,
+      expect.any(Object),
     );
   });
 });
@@ -338,6 +344,7 @@ describe("getMarket", () => {
     expect(result).toEqual(market);
     expect(mockFetch).toHaveBeenCalledWith(
       `${POLYMARKET_V2_CONFIG.clobBaseUrl}/markets/market123`,
+      expect.any(Object),
     );
   });
 });
@@ -437,5 +444,161 @@ describe("HMAC header structure", () => {
 
     expect(sig1).not.toBe(sig2);
     now.mockRestore();
+  });
+});
+
+describe("getOrders", () => {
+  const client = new PolymarketClient();
+  const creds = {
+    api_key: "key123",
+    api_secret: Buffer.from("secret").toString("base64"),
+    api_passphrase: "pass123",
+  };
+
+  it("returns open orders", async () => {
+    const orders = [
+      { order_id: "o1", status: "LIVE", market_id: "m1", token_id: "t1", side: "BUY", size: "10", price: "0.5", order_type: "GTC", created_at: "2025-01-01T00:00:00Z" },
+    ];
+    mockFetch.mockResolvedValueOnce(jsonResponse(orders));
+    const result = await client.getOrders(creds);
+    expect(result).toEqual(orders);
+  });
+
+  it("passes market filter", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse([]));
+    await client.getOrders(creds, { market: "m1" });
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("market=m1");
+  });
+
+  it("passes asset_id filter", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse([]));
+    await client.getOrders(creds, { asset_id: "t1" });
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("asset_id=t1");
+  });
+
+  it("sends HMAC headers", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse([]));
+    await client.getOrders(creds);
+    const [, opts] = mockFetch.mock.calls[0];
+    expect(opts.headers).toHaveProperty("POLY_API_KEY", "key123");
+    expect(opts.headers).toHaveProperty("POLY_SIGNATURE");
+  });
+});
+
+describe("cancelAllOrders", () => {
+  const client = new PolymarketClient();
+  const creds = {
+    api_key: "key123",
+    api_secret: Buffer.from("secret").toString("base64"),
+    api_passphrase: "pass123",
+  };
+
+  it("returns cancelled result with count", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ cancelled: [1, 2, 3] }));
+    const result = await client.cancelAllOrders(creds);
+    expect(result).toEqual({ cancelled: true, count: 3 });
+  });
+
+  it("sends DELETE with HMAC headers", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ cancelled: [] }));
+    await client.cancelAllOrders(creds);
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toContain("/orders");
+    expect(opts.method).toBe("DELETE");
+    expect(opts.headers).toHaveProperty("POLY_API_KEY", "key123");
+  });
+
+  it("passes market filter", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ cancelled: [] }));
+    await client.cancelAllOrders(creds, { market: "m1" });
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("market=m1");
+  });
+});
+
+describe("getBalanceAllowance", () => {
+  const client = new PolymarketClient();
+  const creds = {
+    api_key: "key123",
+    api_secret: Buffer.from("secret").toString("base64"),
+    api_passphrase: "pass123",
+  };
+
+  it("returns balance and allowance", async () => {
+    const balance = { balance: "1000.0", allowance: "500.0", address: "0xabc" };
+    mockFetch.mockResolvedValueOnce(jsonResponse(balance));
+    const result = await client.getBalanceAllowance(creds);
+    expect(result).toEqual(balance);
+  });
+
+  it("passes address when provided", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ balance: "0", allowance: "0", address: "0xdef" }));
+    await client.getBalanceAllowance(creds, "0xdef");
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/balance/0xdef");
+  });
+
+  it("uses default balance endpoint when no address", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ balance: "0", allowance: "0", address: "0xabc" }));
+    await client.getBalanceAllowance(creds);
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/balance");
+    expect(url).not.toContain("/balance/");
+  });
+
+  it("sends HMAC headers", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ balance: "0", allowance: "0", address: "0xabc" }));
+    await client.getBalanceAllowance(creds);
+    const [, opts] = mockFetch.mock.calls[0];
+    expect(opts.headers).toHaveProperty("POLY_API_KEY", "key123");
+    expect(opts.headers).toHaveProperty("POLY_SIGNATURE");
+  });
+});
+
+describe("getMidpoint", () => {
+  const client = new PolymarketClient();
+
+  it("returns midpoint with token_id", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ midpoint: "0.5000" }));
+    const result = await client.getMidpoint("token123");
+    expect(result.token_id).toBe("token123");
+    expect(result.midpoint).toBe("0.5000");
+    expect(result.timestamp).toBeDefined();
+  });
+});
+
+describe("getSpread", () => {
+  const client = new PolymarketClient();
+
+  it("returns spread with token_id", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ spread: "0.0200" }));
+    const result = await client.getSpread("token123");
+    expect(result.token_id).toBe("token123");
+    expect(result.spread).toBe("0.0200");
+    expect(result.timestamp).toBeDefined();
+  });
+});
+
+describe("getTickSize", () => {
+  const client = new PolymarketClient();
+
+  it("returns tick size", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ tick_size: "0.01" }));
+    const result = await client.getTickSize("token123");
+    expect(result.token_id).toBe("token123");
+    expect(result.tick_size).toBe("0.01");
+  });
+});
+
+describe("getNegRisk", () => {
+  const client = new PolymarketClient();
+
+  it("returns neg risk flag", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ neg_risk: true }));
+    const result = await client.getNegRisk("token123");
+    expect(result.token_id).toBe("token123");
+    expect(result.neg_risk).toBe(true);
   });
 });

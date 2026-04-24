@@ -34,12 +34,20 @@ All handlers receive a `WorkerTask` from the Orch8 engine with `params` and `con
 | `poly_create_api_key` | Derive API credentials from a private key | `private_key` | - |
 | `poly_place_order` | Place a limit order on Polymarket | `token_id`, `side`, `size`, `price`, `order_type` | `private_key`, `api_credentials` |
 | `poly_cancel_order` | Cancel an existing order | `order_id` | `api_credentials` |
+| `poly_cancel_all_orders` | Cancel all open orders | - | `api_credentials` |
 | `poly_get_order` | Get order status and fill details | `order_id` | - |
+| `poly_get_orders` | List open orders | - | `api_credentials` |
 | `poly_get_orderbook` | Get orderbook with spread/mid-price | `token_id` | - |
 | `poly_get_positions` | Get account positions | `account_address` | - |
 | `poly_get_market` | Get market details and token prices | `market_id` | - |
-| `poly_stream_prices` | Check price against thresholds | `token_id` | - |
+| `poly_get_price` | Get current token price | `token_id` | - |
+| `poly_stream_prices` | Check price against thresholds (alias) | `token_id` | - |
 | `poly_get_trades` | Get trade history for a token | `token_id` | `api_credentials` |
+| `poly_get_balance` | Get balance and allowance | `address` (optional) | `api_credentials` |
+| `poly_get_midpoint` | Get midpoint price | `token_id` | - |
+| `poly_get_spread` | Get bid-ask spread | `token_id` | - |
+| `poly_get_tick_size` | Get market tick size | `token_id` | - |
+| `poly_get_neg_risk` | Check negative risk flag | `token_id` | - |
 
 ### Context Fields
 
@@ -143,7 +151,7 @@ A typical trading workflow using these handlers:
 ```
 Orch8 Engine ←→ polymarket-worker ←→ Polymarket CLOB API
                      │
-                     ├── handlers/     (9 task handlers)
+                     ├── handlers/     (17 task handlers)
                      ├── client.ts     (API client, signing, HMAC auth)
                      └── types.ts      (EIP-712 constants, interfaces)
 ```

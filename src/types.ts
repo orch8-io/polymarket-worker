@@ -163,6 +163,84 @@ export interface CreateApiKeyParams {
   private_key: string;
 }
 
+// ── New API types ──────────────────────────────────────────────────────────
+
+export interface GetOrdersParams {
+  market?: string;
+  asset_id?: string;
+}
+
+export interface OpenOrder {
+  order_id: string;
+  status: OrderStatus;
+  market_id: string;
+  token_id: string;
+  side: OrderSide;
+  size: string;
+  price: string;
+  order_type: OrderType;
+  expiration?: string;
+  created_at: string;
+}
+
+export interface CancelAllOrdersParams {
+  market?: string;
+  asset_id?: string;
+}
+
+export interface CancelAllResult {
+  cancelled: boolean;
+  count: number;
+}
+
+export interface GetBalanceParams {
+  address?: string;
+}
+
+export interface BalanceAllowanceResult {
+  balance: string;
+  allowance: string;
+  address: string;
+}
+
+export interface GetMidpointParams {
+  token_id: string;
+}
+
+export interface MidpointResult {
+  token_id: string;
+  midpoint: string;
+  timestamp: string;
+}
+
+export interface GetSpreadParams {
+  token_id: string;
+}
+
+export interface SpreadResult {
+  token_id: string;
+  spread: string;
+  timestamp: string;
+}
+
+export interface GetTickSizeParams {
+  token_id: string;
+}
+
+export interface TickSizeResult {
+  token_id: string;
+  tick_size: string;
+}
+
+export interface GetNegRiskParams {
+  token_id: string;
+}
+
+export interface NegRiskResult {
+  token_id: string;
+  neg_risk: boolean;
+}
+
 export class PolymarketError extends Error {
   constructor(
     message: string,

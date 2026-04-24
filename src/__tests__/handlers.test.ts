@@ -5,12 +5,19 @@ import {
   polyCreateApiKey,
   polyPlaceOrder,
   polyCancelOrder,
+  polyCancelAllOrders,
   polyGetOrder,
+  polyGetOrders,
   polyGetOrderbook,
   polyGetPositions,
   polyGetMarket,
   polyStreamPrices,
   polyGetTrades,
+  polyGetBalance,
+  polyGetMidpoint,
+  polyGetSpread,
+  polyGetTickSize,
+  polyGetNegRisk,
 } from "../handlers/index.js";
 
 const mockFetch = vi.fn();
@@ -282,9 +289,126 @@ describe("polyGetTrades", () => {
   });
 });
 
+describe("polyCancelAllOrders", () => {
+  it("throws when api_credentials missing", async () => {
+    await expect(polyCancelAllOrders(makeTask({}))).rejects.toThrow("api_credentials missing from context");
+  });
+
+  it("succeeds with valid params", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ cancelled: [1, 2] }));
+    const task = makeTask({}, { api_credentials: validCreds });
+    const result = await polyCancelAllOrders(task);
+    expect(result).toEqual({ cancelled: true, count: 2 });
+  });
+
+  it("passes market filter", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ cancelled: [] }));
+    const task = makeTask({ market: "m1" }, { api_credentials: validCreds });
+    await polyCancelAllOrders(task);
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain("market=m1");
+  });
+});
+
+describe("polyGetOrders", () => {
+  it("throws when api_credentials missing", async () => {
+    await expect(polyGetOrders(makeTask({}))).rejects.toThrow("api_credentials missing from context");
+  });
+
+  it("returns open orders", async () => {
+    const orders = [{ order_id: "o1", status: "LIVE", market_id: "m1", token_id: "t1", side: "BUY", size: "10", price: "0.5", order_type: "GTC", created_at: "2025-01-01T00:00:00Z" }];
+    mockFetch.mockResolvedValueOnce(jsonResponse(orders));
+    const task = makeTask({}, { api_credentials: validCreds });
+    const result = await polyGetOrders(task);
+    expect(result).toEqual(orders);
+  });
+
+  it("passes asset_id filter", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse([]));
+    const task = makeTask({ asset_id: "t1" }, { api_credentials: validCreds });
+    await polyGetOrders(task);
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain("asset_id=t1");
+  });
+});
+
+describe("polyGetBalance", () => {
+  it("throws when api_credentials missing", async () => {
+    await expect(polyGetBalance(makeTask({}))).rejects.toThrow("api_credentials missing from context");
+  });
+
+  it("returns balance", async () => {
+    const balance = { balance: "1000.0", allowance: "500.0", address: "0xabc" };
+    mockFetch.mockResolvedValueOnce(jsonResponse(balance));
+    const task = makeTask({}, { api_credentials: validCreds });
+    const result = await polyGetBalance(task);
+    expect(result).toEqual(balance);
+  });
+
+  it("passes address param", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ balance: "0", allowance: "0", address: "0xdef" }));
+    const task = makeTask({ address: "0xdef" }, { api_credentials: validCreds });
+    await polyGetBalance(task);
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain("/balance/0xdef");
+  });
+});
+
+describe("polyGetMidpoint", () => {
+  it("throws when token_id is missing", async () => {
+    await expect(polyGetMidpoint(makeTask({}))).rejects.toThrow("token_id is required");
+  });
+
+  it("returns midpoint", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ midpoint: "0.5000" }));
+    const result = await polyGetMidpoint(makeTask({ token_id: "t1" })) as Record<string, unknown>;
+    expect(result).toHaveProperty("midpoint", "0.5000");
+    expect(result).toHaveProperty("token_id", "t1");
+  });
+});
+
+describe("polyGetSpread", () => {
+  it("throws when token_id is missing", async () => {
+    await expect(polyGetSpread(makeTask({}))).rejects.toThrow("token_id is required");
+  });
+
+  it("returns spread", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ spread: "0.0200" }));
+    const result = await polyGetSpread(makeTask({ token_id: "t1" })) as Record<string, unknown>;
+    expect(result).toHaveProperty("spread", "0.0200");
+    expect(result).toHaveProperty("token_id", "t1");
+  });
+});
+
+describe("polyGetTickSize", () => {
+  it("throws when token_id is missing", async () => {
+    await expect(polyGetTickSize(makeTask({}))).rejects.toThrow("token_id is required");
+  });
+
+  it("returns tick size", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ tick_size: "0.01" }));
+    const result = await polyGetTickSize(makeTask({ token_id: "t1" })) as Record<string, unknown>;
+    expect(result).toHaveProperty("tick_size", "0.01");
+    expect(result).toHaveProperty("token_id", "t1");
+  });
+});
+
+describe("polyGetNegRisk", () => {
+  it("throws when token_id is missing", async () => {
+    await expect(polyGetNegRisk(makeTask({}))).rejects.toThrow("token_id is required");
+  });
+
+  it("returns neg risk flag", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ neg_risk: true }));
+    const result = await polyGetNegRisk(makeTask({ token_id: "t1" })) as Record<string, unknown>;
+    expect(result).toHaveProperty("neg_risk", true);
+    expect(result).toHaveProperty("token_id", "t1");
+  });
+});
+
 describe("handler error propagation", () => {
   it("propagates API errors from client", async () => {
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: false,
       status: 429,
       text: async () => "rate limited",
@@ -301,7 +425,7 @@ describe("handler error propagation", () => {
   });
 
   it("propagates 500 server errors as retryable", async () => {
-    mockFetch.mockResolvedValueOnce({
+    mockFetch.mockResolvedValue({
       ok: false,
       status: 500,
       text: async () => "internal error",

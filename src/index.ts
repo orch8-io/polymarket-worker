@@ -2,12 +2,20 @@ export {
   polyCreateApiKey,
   polyPlaceOrder,
   polyCancelOrder,
+  polyCancelAllOrders,
   polyGetOrder,
+  polyGetOrders,
   polyGetOrderbook,
   polyGetPositions,
   polyGetMarket,
-  polyStreamPrices,
+  polyGetPrice,
+  polyStreamPrices, // deprecated alias
   polyGetTrades,
+  polyGetBalance,
+  polyGetMidpoint,
+  polyGetSpread,
+  polyGetTickSize,
+  polyGetNegRisk,
 } from "./handlers/index.js";
 
 export { PolymarketClient } from "./client.js";
@@ -33,6 +41,20 @@ export type {
   OrderSide,
   OrderType,
   OrderStatus,
+  OpenOrder,
+  GetOrdersParams,
+  CancelAllOrdersParams,
+  CancelAllResult,
+  GetBalanceParams,
+  BalanceAllowanceResult,
+  GetMidpointParams,
+  MidpointResult,
+  GetSpreadParams,
+  SpreadResult,
+  GetTickSizeParams,
+  TickSizeResult,
+  GetNegRiskParams,
+  NegRiskResult,
 } from "./types.js";
 
 export { PolymarketError } from "./types.js";

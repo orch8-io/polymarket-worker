@@ -1,9 +1,16 @@
 export { polyCreateApiKey } from "./create-api-key.js";
 export { polyPlaceOrder } from "./place-order.js";
 export { polyCancelOrder } from "./cancel-order.js";
+export { polyCancelAllOrders } from "./cancel-all-orders.js";
 export { polyGetOrder } from "./get-order.js";
+export { polyGetOrders } from "./get-orders.js";
 export { polyGetOrderbook } from "./get-orderbook.js";
 export { polyGetPositions } from "./get-positions.js";
 export { polyGetMarket } from "./get-market.js";
-export { polyStreamPrices } from "./stream-prices.js";
+export { polyGetPrice, polyStreamPrices } from "./get-price.js";
 export { polyGetTrades } from "./get-trades.js";
+export { polyGetBalance } from "./get-balance.js";
+export { polyGetMidpoint } from "./get-midpoint.js";
+export { polyGetSpread } from "./get-spread.js";
+export { polyGetTickSize } from "./get-tick-size.js";
+export { polyGetNegRisk } from "./get-neg-risk.js";
