@@ -1,0 +1,38 @@
+{
+  "name": "@orch8/polymarket-worker",
+  "version": "0.1.0",
+  "description": "Polymarket V2 CLOB connector for Orch8 workflow engine",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": ["orch8", "polymarket", "prediction-market", "trading", "workflow"],
+  "license": "BUSL-1.1",
+  "dependencies": {
+    "@orch8.io/sdk": "workspace:*",
+    "ethers": "^6.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

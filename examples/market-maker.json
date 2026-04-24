@@ -1,0 +1,134 @@
+{
+  "name": "polymarket-market-maker",
+  "version": 1,
+  "blocks": [
+    {
+      "type": "step",
+      "id": "get_market",
+      "handler": "poly_get_market",
+      "params": {
+        "market_id": "{{context.data.market_id}}"
+      }
+    },
+    {
+      "type": "step",
+      "id": "get_orderbook",
+      "handler": "poly_get_orderbook",
+      "params": {
+        "token_id": "{{outputs.get_market.tokens.0.token_id}}"
+      }
+    },
+    {
+      "type": "step",
+      "id": "calculate_spread",
+      "handler": "llm_call",
+      "params": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a market-making spread calculator. Given an orderbook, calculate optimal bid and ask prices with the configured spread. Return JSON: {bid_price, ask_price, bid_size, ask_size}."
+          },
+          {
+            "role": "user",
+            "content": "Orderbook: {{outputs.get_orderbook}}. Config: spread={{context.config.spread_bps}}bps, max_size={{context.config.max_order_size}}"
+          }
+        ],
+        "response_format": { "type": "json_object" }
+      }
+    },
+    {
+      "type": "try_catch",
+      "id": "place_orders",
+      "try": [
+        {
+          "type": "parallel",
+          "id": "place_both_sides",
+          "blocks": [
+            {
+              "type": "step",
+              "id": "place_bid",
+              "handler": "poly_place_order",
+              "params": {
+                "market_id": "{{context.data.market_id}}",
+                "token_id": "{{outputs.get_market.tokens.0.token_id}}",
+                "side": "BUY",
+                "size": "{{outputs.calculate_spread.bid_size}}",
+                "price": "{{outputs.calculate_spread.bid_price}}",
+                "order_type": "GTC"
+              }
+            },
+            {
+              "type": "step",
+              "id": "place_ask",
+              "handler": "poly_place_order",
+              "params": {
+                "market_id": "{{context.data.market_id}}",
+                "token_id": "{{outputs.get_market.tokens.0.token_id}}",
+                "side": "SELL",
+                "size": "{{outputs.calculate_spread.ask_size}}",
+                "price": "{{outputs.calculate_spread.ask_price}}",
+                "order_type": "GTC"
+              }
+            }
+          ]
+        }
+      ],
+      "catch": [
+        {
+          "type": "step",
+          "id": "log_order_error",
+          "handler": "log",
+          "params": {
+            "message": "Order placement failed: {{error.message}}",
+            "level": "warn"
+          }
+        }
+      ]
+    },
+    {
+      "type": "loop",
+      "id": "monitor_and_readjust",
+      "condition": "context.data.active == true",
+      "max_iterations": 1000,
+      "blocks": [
+        {
+          "type": "step",
+          "id": "check_orders",
+          "handler": "poly_get_order",
+          "params": {
+            "order_id": "{{outputs.place_bid.order_id}}"
+          }
+        },
+        {
+          "type": "router",
+          "id": "check_fill",
+          "routes": [
+            {
+              "condition": "outputs.check_orders.status == 'MATCHED'",
+              "blocks": [
+                {
+                  "type": "step",
+                  "id": "recalculate",
+                  "handler": "poly_get_orderbook",
+                  "params": {
+                    "token_id": "{{outputs.get_market.tokens.0.token_id}}"
+                  }
+                }
+              ]
+            }
+          ],
+          "default": [
+            {
+              "type": "step",
+              "id": "wait",
+              "handler": "sleep",
+              "params": { "duration_ms": 5000 }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

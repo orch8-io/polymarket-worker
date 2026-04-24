@@ -1,0 +1,102 @@
+{
+  "name": "polymarket-cross-market-arbitrage",
+  "version": 1,
+  "blocks": [
+    {
+      "type": "parallel",
+      "id": "fetch_prices",
+      "blocks": [
+        {
+          "type": "step",
+          "id": "market_a_price",
+          "handler": "poly_stream_prices",
+          "params": {
+            "token_id": "{{context.data.token_a_id}}"
+          }
+        },
+        {
+          "type": "step",
+          "id": "market_b_price",
+          "handler": "poly_stream_prices",
+          "params": {
+            "token_id": "{{context.data.token_b_id}}"
+          }
+        }
+      ]
+    },
+    {
+      "type": "step",
+      "id": "detect_opportunity",
+      "handler": "llm_call",
+      "params": {
+        "provider": "openai",
+        "model": "gpt-4o-mini",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are an arbitrage detector. Given two correlated market prices, determine if an arbitrage opportunity exists. If YES price + NO price of correlated outcomes < 0.98 or > 1.02, there is an opportunity. Return JSON: {opportunity: boolean, action: 'buy_a_sell_b' | 'buy_b_sell_a' | 'none', expected_profit_bps: number}."
+          },
+          {
+            "role": "user",
+            "content": "Market A ({{context.data.token_a_id}}): {{outputs.market_a_price.price}}. Market B ({{context.data.token_b_id}}): {{outputs.market_b_price.price}}. Min profit threshold: {{context.config.min_profit_bps}}bps."
+          }
+        ],
+        "response_format": { "type": "json_object" }
+      }
+    },
+    {
+      "type": "router",
+      "id": "execute_or_skip",
+      "routes": [
+        {
+          "condition": "outputs.detect_opportunity.opportunity == true",
+          "blocks": [
+            {
+              "type": "race",
+              "id": "execute_arb",
+              "blocks": [
+                {
+                  "type": "step",
+                  "id": "buy_side",
+                  "handler": "poly_place_order",
+                  "params": {
+                    "market_id": "{{context.data.market_a_id}}",
+                    "token_id": "{{context.data.token_a_id}}",
+                    "side": "BUY",
+                    "size": "{{context.config.order_size}}",
+                    "price": "{{outputs.market_a_price.price}}",
+                    "order_type": "FOK"
+                  }
+                },
+                {
+                  "type": "step",
+                  "id": "sell_side",
+                  "handler": "poly_place_order",
+                  "params": {
+                    "market_id": "{{context.data.market_b_id}}",
+                    "token_id": "{{context.data.token_b_id}}",
+                    "side": "SELL",
+                    "size": "{{context.config.order_size}}",
+                    "price": "{{outputs.market_b_price.price}}",
+                    "order_type": "FOK"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "default": [
+        {
+          "type": "step",
+          "id": "no_opportunity",
+          "handler": "log",
+          "params": {
+            "message": "No arbitrage opportunity found. Spread: {{outputs.detect_opportunity.expected_profit_bps}}bps",
+            "level": "info"
+          }
+        }
+      ]
+    }
+  ]
+}

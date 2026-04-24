@@ -1,0 +1,95 @@
+{
+  "name": "polymarket-ai-research-agent",
+  "version": 1,
+  "blocks": [
+    {
+      "type": "step",
+      "id": "get_market",
+      "handler": "poly_get_market",
+      "params": {
+        "market_id": "{{context.data.market_id}}"
+      }
+    },
+    {
+      "type": "step",
+      "id": "research",
+      "handler": "llm_call",
+      "params": {
+        "provider": "openai",
+        "model": "gpt-4o",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a prediction market research analyst. Analyze the market question and current prices. Research publicly available information to estimate the true probability. Return JSON: {estimated_probability: number (0-1), confidence: number (0-1), reasoning: string, recommendation: 'BUY_YES' | 'BUY_NO' | 'HOLD', edge_bps: number}."
+          },
+          {
+            "role": "user",
+            "content": "Market: {{outputs.get_market.question}}. Current YES price: {{outputs.get_market.tokens.0.price}}. Current NO price: {{outputs.get_market.tokens.1.price}}. Volume: {{outputs.get_market.volume}}. Ends: {{outputs.get_market.end_date}}."
+          }
+        ],
+        "response_format": { "type": "json_object" }
+      }
+    },
+    {
+      "type": "router",
+      "id": "decide",
+      "routes": [
+        {
+          "condition": "outputs.research.recommendation == 'BUY_YES' && outputs.research.confidence > 0.7",
+          "blocks": [
+            {
+              "type": "step",
+              "id": "buy_yes",
+              "handler": "poly_place_order",
+              "params": {
+                "market_id": "{{context.data.market_id}}",
+                "token_id": "{{outputs.get_market.tokens.0.token_id}}",
+                "side": "BUY",
+                "size": "{{context.config.max_position_size}}",
+                "price": "{{outputs.get_market.tokens.0.price}}",
+                "order_type": "GTC"
+              }
+            }
+          ]
+        },
+        {
+          "condition": "outputs.research.recommendation == 'BUY_NO' && outputs.research.confidence > 0.7",
+          "blocks": [
+            {
+              "type": "step",
+              "id": "buy_no",
+              "handler": "poly_place_order",
+              "params": {
+                "market_id": "{{context.data.market_id}}",
+                "token_id": "{{outputs.get_market.tokens.1.token_id}}",
+                "side": "BUY",
+                "size": "{{context.config.max_position_size}}",
+                "price": "{{outputs.get_market.tokens.1.price}}",
+                "order_type": "GTC"
+              }
+            }
+          ]
+        }
+      ],
+      "default": [
+        {
+          "type": "step",
+          "id": "hold",
+          "handler": "log",
+          "params": {
+            "message": "HOLD — confidence={{outputs.research.confidence}}, edge={{outputs.research.edge_bps}}bps. Reasoning: {{outputs.research.reasoning}}",
+            "level": "info"
+          }
+        }
+      ]
+    },
+    {
+      "type": "step",
+      "id": "check_positions",
+      "handler": "poly_get_positions",
+      "params": {
+        "account_address": "{{context.data.account_address}}"
+      }
+    }
+  ]
+}
