@@ -6,3 +6,4 @@ export { polyGetOrderbook } from "./get-orderbook.js";
 export { polyGetPositions } from "./get-positions.js";
 export { polyGetMarket } from "./get-market.js";
 export { polyStreamPrices } from "./stream-prices.js";
+export { polyGetTrades } from "./get-trades.js";

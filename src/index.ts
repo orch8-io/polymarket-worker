@@ -7,6 +7,7 @@ export {
   polyGetPositions,
   polyGetMarket,
   polyStreamPrices,
+  polyGetTrades,
 } from "./handlers/index.js";
 
 export { PolymarketClient } from "./client.js";

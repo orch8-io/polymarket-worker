@@ -7,7 +7,7 @@ export interface PolymarketConfig {
 export const POLYMARKET_V2_CONFIG: PolymarketConfig = {
   clobBaseUrl: "https://clob.polymarket.com",
   chainId: 137,
-  exchangeAddress: "0x8b29D1C1f4c4F2d45EE7e4B3e3D1C3f2a5b6d7e8", // V2 CTF Exchange
+  exchangeAddress: "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E", // V2 CTF Exchange on Polygon
 };
 
 export const EIP712_DOMAIN = {
@@ -168,6 +168,7 @@ export class PolymarketError extends Error {
     message: string,
     public readonly statusCode: number,
     public readonly retryable: boolean,
+    public readonly code?: string,
   ) {
     super(message);
     this.name = "PolymarketError";

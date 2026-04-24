@@ -8,6 +8,7 @@ import {
   polyGetPositions,
   polyGetMarket,
   polyStreamPrices,
+  polyGetTrades,
 } from "./handlers/index.js";
 
 const engineUrl = process.env.ORCH8_URL || "http://localhost:8080";
@@ -27,6 +28,7 @@ const worker = new Orch8Worker({
     poly_get_positions: polyGetPositions,
     poly_get_market: polyGetMarket,
     poly_stream_prices: polyStreamPrices,
+    poly_get_trades: polyGetTrades,
   },
   onTaskComplete: (task, output) => {
     console.log(`[OK] ${task.handler_name} task=${task.id}`);

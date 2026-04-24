@@ -17,12 +17,51 @@ import {
 } from "./types.js";
 
 function classifyError(status: number, body: string): PolymarketError {
-  const retryable = status === 429 || status >= 500;
-  return new PolymarketError(
-    `Polymarket API ${status}: ${body}`,
-    status,
-    retryable,
-  );
+  const lower = body.toLowerCase();
+
+  // Non-retryable client errors
+  if (status === 400) {
+    if (lower.includes("insufficient balance")) {
+      return new PolymarketError("Insufficient balance", 400, false, "INSUFFICIENT_BALANCE");
+    }
+    if (lower.includes("too small") || lower.includes("minimum")) {
+      return new PolymarketError("Order size too small", 400, false, "ORDER_TOO_SMALL");
+    }
+    if (lower.includes("invalid signature") || lower.includes("signature")) {
+      return new PolymarketError("Invalid signature", 400, false, "INVALID_SIGNATURE");
+    }
+    if (lower.includes("expired")) {
+      return new PolymarketError("Order expired", 400, false, "ORDER_EXPIRED");
+    }
+    return new PolymarketError(`Bad request: ${body}`, 400, false, "BAD_REQUEST");
+  }
+
+  if (status === 401) {
+    return new PolymarketError("Unauthorized — check API credentials", 401, false, "UNAUTHORIZED");
+  }
+
+  if (status === 403) {
+    return new PolymarketError("Forbidden — API key may be revoked", 403, false, "FORBIDDEN");
+  }
+
+  if (status === 404) {
+    return new PolymarketError("Not found", 404, false, "NOT_FOUND");
+  }
+
+  if (status === 409) {
+    return new PolymarketError("Conflict — order may already exist", 409, false, "CONFLICT");
+  }
+
+  // Retryable errors
+  if (status === 429) {
+    return new PolymarketError("Rate limited — backoff and retry", 429, true, "RATE_LIMITED");
+  }
+
+  if (status >= 500) {
+    return new PolymarketError(`Server error: ${body}`, status, true, "SERVER_ERROR");
+  }
+
+  return new PolymarketError(`Polymarket API ${status}: ${body}`, status, false, "UNKNOWN");
 }
 
 function hmacHeaders(
@@ -31,13 +70,14 @@ function hmacHeaders(
   path: string,
   body: string,
   timestamp: string,
+  address?: string,
 ): Record<string, string> {
   const message = timestamp + method.toUpperCase() + path + body;
   const key = Buffer.from(creds.api_secret, "base64");
   const hmac = ethers.computeHmac("sha256", key, Buffer.from(message));
 
   return {
-    POLY_ADDRESS: "",
+    POLY_ADDRESS: address || "",
     POLY_SIGNATURE: hmac,
     POLY_TIMESTAMP: timestamp,
     POLY_API_KEY: creds.api_key,
@@ -162,7 +202,7 @@ export class PolymarketClient {
 
     const path = "/order";
     const timestamp = Math.floor(Date.now() / 1000).toString();
-    const headers = hmacHeaders(creds, "POST", path, body, timestamp);
+    const headers = hmacHeaders(creds, "POST", path, body, timestamp, wallet.address);
 
     const res = await fetch(`${this.config.clobBaseUrl}${path}`, {
       method: "POST",
@@ -274,5 +314,30 @@ export class PolymarketClient {
 
     const data = (await res.json()) as { price: string };
     return data.price;
+  }
+
+  async getTrades(
+    tokenId: string,
+    creds: ApiCredentials,
+    options?: { limit?: number; before?: string; after?: string },
+  ): Promise<Array<{ price: string; size: string; side: string; timestamp: string; transaction_hash: string }>> {
+    const qs = new URLSearchParams({ token_id: tokenId });
+    if (options?.limit) qs.set("limit", String(options.limit));
+    if (options?.before) qs.set("before", options.before);
+    if (options?.after) qs.set("after", options.after);
+
+    const path = `/trades?${qs.toString()}`;
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const headers = hmacHeaders(creds, "GET", path, "", timestamp);
+
+    const res = await fetch(`${this.config.clobBaseUrl}${path}`, {
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+
+    if (!res.ok) {
+      throw classifyError(res.status, await res.text());
+    }
+
+    return (await res.json()) as Array<{ price: string; size: string; side: string; timestamp: string; transaction_hash: string }>;
   }
 }
