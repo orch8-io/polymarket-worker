@@ -89,7 +89,11 @@ export class PolymarketClient {
   private readonly config: PolymarketConfig;
 
   constructor(config: Partial<PolymarketConfig> = {}) {
-    this.config = { ...POLYMARKET_V2_CONFIG, ...config };
+    this.config = {
+      ...POLYMARKET_V2_CONFIG,
+      ...(process.env.POLYMARKET_CLOB_URL && { clobBaseUrl: process.env.POLYMARKET_CLOB_URL }),
+      ...config,
+    };
   }
 
   async deriveApiKey(privateKey: string): Promise<ApiCredentials> {

@@ -1,0 +1,318 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { WorkerTask } from "@orch8.io/sdk";
+import { PolymarketError } from "../types.js";
+import {
+  polyCreateApiKey,
+  polyPlaceOrder,
+  polyCancelOrder,
+  polyGetOrder,
+  polyGetOrderbook,
+  polyGetPositions,
+  polyGetMarket,
+  polyStreamPrices,
+  polyGetTrades,
+} from "../handlers/index.js";
+
+const mockFetch = vi.fn();
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", mockFetch);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => JSON.stringify(data),
+    json: async () => data,
+  } as Response;
+}
+
+function makeTask(params: Record<string, unknown>, context: Record<string, unknown> = {}): WorkerTask {
+  return {
+    id: "task-1",
+    handler_name: "test",
+    params,
+    context,
+  } as WorkerTask;
+}
+
+const validCreds = {
+  api_key: "key",
+  api_secret: Buffer.from("secret").toString("base64"),
+  api_passphrase: "pass",
+};
+
+describe("polyCreateApiKey", () => {
+  it("throws when private_key is missing", async () => {
+    await expect(polyCreateApiKey(makeTask({}))).rejects.toThrow(PolymarketError);
+    await expect(polyCreateApiKey(makeTask({}))).rejects.toThrow("private_key is required");
+  });
+
+  it("calls deriveApiKey with valid params", async () => {
+    const creds = { api_key: "k", api_secret: "s", api_passphrase: "p" };
+    mockFetch.mockResolvedValueOnce(jsonResponse(creds));
+    const task = makeTask({ private_key: "0x" + "a".repeat(64) });
+    const result = await polyCreateApiKey(task);
+    expect(result).toEqual(creds);
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toContain("/auth/derive-api-key");
+    expect(opts.method).toBe("POST");
+  });
+});
+
+describe("polyPlaceOrder", () => {
+  it("throws when private_key missing from context", async () => {
+    const task = makeTask(
+      { token_id: "t1", side: "BUY", size: "10", price: "0.5" },
+      { api_credentials: validCreds },
+    );
+    await expect(polyPlaceOrder(task)).rejects.toThrow("private_key missing from context");
+  });
+
+  it("throws when api_credentials missing from context", async () => {
+    const task = makeTask(
+      { token_id: "t1", side: "BUY", size: "10", price: "0.5" },
+      { private_key: "0x" + "a".repeat(64) },
+    );
+    await expect(polyPlaceOrder(task)).rejects.toThrow("api_credentials missing from context");
+  });
+
+  it("throws when api_credentials partially present", async () => {
+    const task = makeTask(
+      { token_id: "t1", side: "BUY", size: "10", price: "0.5" },
+      { private_key: "0x" + "a".repeat(64), api_credentials: { api_key: "k" } },
+    );
+    await expect(polyPlaceOrder(task)).rejects.toThrow("api_credentials missing from context");
+  });
+
+  it("throws when required params missing", async () => {
+    const task = makeTask(
+      { token_id: "t1" },
+      { private_key: "0x" + "a".repeat(64), api_credentials: validCreds },
+    );
+    await expect(polyPlaceOrder(task)).rejects.toThrow("token_id, side, size, and price are required");
+  });
+
+  it("throws when token_id is missing", async () => {
+    const task = makeTask(
+      { side: "BUY", size: "10", price: "0.5" },
+      { private_key: "0x" + "a".repeat(64), api_credentials: validCreds },
+    );
+    await expect(polyPlaceOrder(task)).rejects.toThrow("token_id, side, size, and price are required");
+  });
+});
+
+describe("polyCancelOrder", () => {
+  it("throws when order_id is missing", async () => {
+    const task = makeTask({}, { api_credentials: validCreds });
+    await expect(polyCancelOrder(task)).rejects.toThrow("order_id is required");
+  });
+
+  it("throws when api_credentials missing", async () => {
+    const task = makeTask({ order_id: "o1" });
+    await expect(polyCancelOrder(task)).rejects.toThrow("api_credentials missing from context");
+  });
+
+  it("succeeds with valid params", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
+    const task = makeTask({ order_id: "o1" }, { api_credentials: validCreds });
+    const result = await polyCancelOrder(task);
+    expect(result).toEqual({ cancelled: true, order_id: "o1" });
+  });
+});
+
+describe("polyGetOrder", () => {
+  it("throws when order_id is missing", async () => {
+    await expect(polyGetOrder(makeTask({}))).rejects.toThrow("order_id is required");
+  });
+
+  it("returns order detail", async () => {
+    const order = { order_id: "o1", status: "LIVE", size_matched: "0", size_remaining: "10", average_price: "0.5", fills: [] };
+    mockFetch.mockResolvedValueOnce(jsonResponse(order));
+    const result = await polyGetOrder(makeTask({ order_id: "o1" }));
+    expect(result).toEqual(order);
+  });
+});
+
+describe("polyGetOrderbook", () => {
+  it("throws when token_id is missing", async () => {
+    await expect(polyGetOrderbook(makeTask({}))).rejects.toThrow("token_id is required");
+  });
+
+  it("returns enriched orderbook", async () => {
+    const rawBook = {
+      bids: [{ price: "0.45", size: "100" }],
+      asks: [{ price: "0.55", size: "100" }],
+    };
+    mockFetch.mockResolvedValueOnce(jsonResponse(rawBook));
+    const result = await polyGetOrderbook(makeTask({ token_id: "t1" })) as Record<string, unknown>;
+    expect(result).toHaveProperty("spread");
+    expect(result).toHaveProperty("mid_price");
+  });
+});
+
+describe("polyGetPositions", () => {
+  it("throws when account_address is missing", async () => {
+    await expect(polyGetPositions(makeTask({}))).rejects.toThrow("account_address is required");
+  });
+
+  it("returns positions", async () => {
+    const positions = { positions: [], total_value: "0", unrealized_pnl: "0" };
+    mockFetch.mockResolvedValueOnce(jsonResponse(positions));
+    const result = await polyGetPositions(makeTask({ account_address: "0xabc" }));
+    expect(result).toEqual(positions);
+  });
+});
+
+describe("polyGetMarket", () => {
+  it("throws when market_id is missing", async () => {
+    await expect(polyGetMarket(makeTask({}))).rejects.toThrow("market_id is required");
+  });
+
+  it("returns market data", async () => {
+    const market = {
+      condition_id: "c1",
+      question: "Test?",
+      tokens: [],
+      volume: "0",
+      liquidity: "0",
+      end_date: "2025-12-31",
+      active: true,
+    };
+    mockFetch.mockResolvedValueOnce(jsonResponse(market));
+    const result = await polyGetMarket(makeTask({ market_id: "m1" }));
+    expect(result).toEqual(market);
+  });
+});
+
+describe("polyStreamPrices", () => {
+  it("throws when token_id is missing", async () => {
+    await expect(polyStreamPrices(makeTask({}))).rejects.toThrow("token_id is required");
+  });
+
+  it("returns price without threshold", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.65" }));
+    const result = await polyStreamPrices(makeTask({ token_id: "t1" })) as Record<string, unknown>;
+    expect(result).toHaveProperty("price", "0.65");
+    expect(result).toHaveProperty("threshold_triggered", false);
+    expect(result).toHaveProperty("trigger_direction", null);
+  });
+
+  it("triggers above threshold", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.80" }));
+    const task = makeTask({
+      token_id: "t1",
+      price_threshold: { above: "0.75" },
+    });
+    const result = await polyStreamPrices(task) as Record<string, unknown>;
+    expect(result).toHaveProperty("threshold_triggered", true);
+    expect(result).toHaveProperty("trigger_direction", "above");
+  });
+
+  it("triggers below threshold", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.20" }));
+    const task = makeTask({
+      token_id: "t1",
+      price_threshold: { below: "0.25" },
+    });
+    const result = await polyStreamPrices(task) as Record<string, unknown>;
+    expect(result).toHaveProperty("threshold_triggered", true);
+    expect(result).toHaveProperty("trigger_direction", "below");
+  });
+
+  it("does not trigger when price is within thresholds", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.50" }));
+    const task = makeTask({
+      token_id: "t1",
+      price_threshold: { above: "0.75", below: "0.25" },
+    });
+    const result = await polyStreamPrices(task) as Record<string, unknown>;
+    expect(result).toHaveProperty("threshold_triggered", false);
+    expect(result).toHaveProperty("trigger_direction", null);
+  });
+
+  it("below threshold takes precedence when both trigger", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.10" }));
+    const task = makeTask({
+      token_id: "t1",
+      price_threshold: { above: "0.05", below: "0.25" },
+    });
+    const result = await polyStreamPrices(task) as Record<string, unknown>;
+    expect(result).toHaveProperty("threshold_triggered", true);
+    expect(result).toHaveProperty("trigger_direction", "below");
+  });
+});
+
+describe("polyGetTrades", () => {
+  it("throws when token_id is missing", async () => {
+    const task = makeTask({}, { api_credentials: validCreds });
+    await expect(polyGetTrades(task)).rejects.toThrow("token_id is required");
+  });
+
+  it("throws when api_credentials missing", async () => {
+    const task = makeTask({ token_id: "t1" });
+    await expect(polyGetTrades(task)).rejects.toThrow("api_credentials missing from context");
+  });
+
+  it("returns trades", async () => {
+    const trades = [{ price: "0.5", size: "10", side: "BUY", timestamp: "2025-01-01T00:00:00Z", transaction_hash: "0xabc" }];
+    mockFetch.mockResolvedValueOnce(jsonResponse(trades));
+    const task = makeTask({ token_id: "t1" }, { api_credentials: validCreds });
+    const result = await polyGetTrades(task);
+    expect(result).toEqual(trades);
+  });
+
+  it("passes optional params", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse([]));
+    const task = makeTask(
+      { token_id: "t1", limit: 25, before: "cur1", after: "cur2" },
+      { api_credentials: validCreds },
+    );
+    await polyGetTrades(task);
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain("limit=25");
+    expect(url).toContain("before=cur1");
+    expect(url).toContain("after=cur2");
+  });
+});
+
+describe("handler error propagation", () => {
+  it("propagates API errors from client", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      text: async () => "rate limited",
+    } as Response);
+    const task = makeTask({ order_id: "o1" });
+    try {
+      await polyGetOrder(task);
+    } catch (e) {
+      const err = e as PolymarketError;
+      expect(err).toBeInstanceOf(PolymarketError);
+      expect(err.retryable).toBe(true);
+      expect(err.code).toBe("RATE_LIMITED");
+    }
+  });
+
+  it("propagates 500 server errors as retryable", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      text: async () => "internal error",
+    } as Response);
+    const task = makeTask({ market_id: "m1" });
+    try {
+      await polyGetMarket(task);
+    } catch (e) {
+      const err = e as PolymarketError;
+      expect(err.retryable).toBe(true);
+      expect(err.statusCode).toBe(500);
+    }
+  });
+});
