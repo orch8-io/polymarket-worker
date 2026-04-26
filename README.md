@@ -167,6 +167,26 @@ pnpm test
 pnpm test:watch
 ```
 
+### Test Suite Overview
+
+This package is tested as part of the full Orch8 stack:
+
+| Layer | Tests | Scope |
+|---|---|---|
+| Rust unit + integration | 1,255 | Storage backends, evaluator, scheduler, handlers, config parsing, state machine transitions, gRPC auth, full engine integration |
+| TypeScript E2E | 773 | 202 test files hitting the live HTTP API — sequences, instances, workers, cron, triggers, webhooks, approvals, sessions, plugins, credentials, pools, cluster, SSE streaming |
+
+**Polymarket-worker exact test count — 109 total**
+
+| Suite | Tests | Focus |
+|---|---|---|
+| `types.test.ts` | 9 | Constants, error types, EIP-712 schemas |
+| `client.test.ts` | 47 | HTTP client, retry logic, HMAC auth, error classification, all API methods |
+| `handlers.test.ts` | 47 | Param validation, context checks, handler-to-client delegation |
+| `integration.test.ts` | 6 | End-to-end workflows, cross-handler error propagation, full trading flows |
+
+**Total: 109 tests** — verified via `vitest run`.
+
 ## License
 
 BUSL-1.1
