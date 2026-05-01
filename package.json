@@ -1,5 +1,5 @@
 {
-  "name": "@orch8/polymarket-worker",
+  "name": "@orch8.io/polymarket-worker",
   "version": "0.1.0",
   "description": "Polymarket V2 CLOB connector for Orch8 workflow engine",
   "type": "module",

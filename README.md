@@ -1,4 +1,4 @@
-# @orch8/polymarket-worker
+# @orch8.io/polymarket-worker
 
 Polymarket V2 CLOB connector for the Orch8 workflow engine. Enables prediction market trading through declarative workflow tasks.
 
