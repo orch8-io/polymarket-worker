@@ -68,7 +68,7 @@ describe("Integration: full trading workflow", () => {
     const market = {
       condition_id: "cid1",
       question: "Will it rain?",
-      tokens: [{ token_id: "t1", outcome: "Yes", price: "0.6" }],
+      tokens: [{ token_id: "12345678901234567890", outcome: "Yes", price: "0.6" }],
       volume: "10000",
       liquidity: "1000",
       end_date: "2025-12-31",
@@ -84,7 +84,7 @@ describe("Integration: full trading workflow", () => {
       asks: [{ price: "0.62", size: "100" }],
     };
     mockFetch.mockResolvedValueOnce(jsonResponse(book));
-    const bookResult = await polyGetOrderbook(makeTask({ token_id: "t1" })) as Record<string, unknown>;
+    const bookResult = await polyGetOrderbook(makeTask({ token_id: "12345678901234567890" })) as Record<string, unknown>;
     expect(bookResult.spread).toBe("0.0400");
     expect(bookResult.mid_price).toBe("0.6000");
 
@@ -111,11 +111,12 @@ describe("Integration: full trading workflow", () => {
 
 describe("Integration: market data collection", () => {
   it("fetches price, midpoint, spread, tick size and neg risk for a token", async () => {
-    const tokenId = "t1";
+    const tokenId = "12345678901234567890";
 
     mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.65" }));
     const priceResult = await polyGetPrice(makeTask({ token_id: tokenId })) as Record<string, unknown>;
-    expect(priceResult.price).toBe("0.65");
+    expect(priceResult.price).toBe(0.65);
+    expect(priceResult.price_raw).toBe("0.65");
 
     mockFetch.mockResolvedValueOnce(jsonResponse({ midpoint: "0.6500" }));
     const midpointResult = await polyGetMidpoint(makeTask({ token_id: tokenId })) as Record<string, unknown>;
@@ -153,7 +154,7 @@ describe("Integration: account management", () => {
 
     // Get open orders
     const orders = [
-      { order_id: "o1", status: "LIVE", market_id: "m1", token_id: "t1", side: "BUY", size: "10", price: "0.5", order_type: "GTC", created_at: "2025-01-01T00:00:00Z" },
+      { order_id: "o1", status: "LIVE", market_id: "m1", token_id: "12345678901234567890", side: "BUY", size: "10", price: "0.5", order_type: "GTC", created_at: "2025-01-01T00:00:00Z" },
     ];
     mockFetch.mockResolvedValueOnce(jsonResponse(orders));
     const ordersResult = await polyGetOrders(makeTask({}, { api_credentials: creds }));
@@ -177,12 +178,12 @@ describe("Integration: error handling across handlers", () => {
     const tasks = [
       { handler: () => polyGetOrder(makeTask({ order_id: "o1" })), name: "polyGetOrder" },
       { handler: () => polyGetMarket(makeTask({ market_id: "m1" })), name: "polyGetMarket" },
-      { handler: () => polyGetOrderbook(makeTask({ token_id: "t1" })), name: "polyGetOrderbook" },
-      { handler: () => polyGetPrice(makeTask({ token_id: "t1" })), name: "polyGetPrice" },
-      { handler: () => polyGetMidpoint(makeTask({ token_id: "t1" })), name: "polyGetMidpoint" },
-      { handler: () => polyGetSpread(makeTask({ token_id: "t1" })), name: "polyGetSpread" },
-      { handler: () => polyGetTickSize(makeTask({ token_id: "t1" })), name: "polyGetTickSize" },
-      { handler: () => polyGetNegRisk(makeTask({ token_id: "t1" })), name: "polyGetNegRisk" },
+      { handler: () => polyGetOrderbook(makeTask({ token_id: "12345678901234567890" })), name: "polyGetOrderbook" },
+      { handler: () => polyGetPrice(makeTask({ token_id: "12345678901234567890" })), name: "polyGetPrice" },
+      { handler: () => polyGetMidpoint(makeTask({ token_id: "12345678901234567890" })), name: "polyGetMidpoint" },
+      { handler: () => polyGetSpread(makeTask({ token_id: "12345678901234567890" })), name: "polyGetSpread" },
+      { handler: () => polyGetTickSize(makeTask({ token_id: "12345678901234567890" })), name: "polyGetTickSize" },
+      { handler: () => polyGetNegRisk(makeTask({ token_id: "12345678901234567890" })), name: "polyGetNegRisk" },
     ];
 
     for (const { handler, name } of tasks) {
@@ -196,7 +197,7 @@ describe("Integration: error handling across handlers", () => {
         expect(err.retryable).toBe(true);
       }
     }
-  }, 30000);
+  }, 60000);
 
   it("handles 404 not found across different resource types", async () => {
     mockFetch.mockResolvedValue({

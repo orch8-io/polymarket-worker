@@ -147,7 +147,8 @@ export interface StreamPricesParams {
 }
 
 export interface PriceResult {
-  price: string;
+  price: number;
+  price_raw: string;
   timestamp: string;
   threshold_triggered: boolean;
   trigger_direction: "above" | "below" | null;
@@ -239,6 +240,58 @@ export interface GetNegRiskParams {
 export interface NegRiskResult {
   token_id: string;
   neg_risk: boolean;
+}
+
+// ── Gamma API types (market discovery) ────────────────────────────────────
+
+export interface DiscoverMarketsParams {
+  limit?: number;
+  offset?: number;
+  order?: string;
+  ascending?: boolean;
+  closed?: boolean;
+  active?: boolean;
+  tag?: string;
+  end_date_min?: string;
+  end_date_max?: string;
+}
+
+export interface GammaMarket {
+  id: string;
+  question: string;
+  condition_id: string;
+  slug: string;
+  end_date_iso: string;
+  description: string;
+  active: boolean;
+  closed: boolean;
+  volume: string;
+  liquidity: string;
+  outcomes: string[];
+  outcome_prices: string[];
+  tokens: Array<{
+    token_id: string;
+    outcome: string;
+    price: number;
+  }>;
+  tags: string[];
+  category: string;
+}
+
+export interface DiscoverMarketsResult {
+  markets: GammaMarket[];
+  count: number;
+}
+
+export interface CheckResolutionParams {
+  condition_id: string;
+}
+
+export interface ResolutionResult {
+  condition_id: string;
+  resolved: boolean;
+  payout_numerators?: number[];
+  resolution_source?: string;
 }
 
 export class PolymarketError extends Error {

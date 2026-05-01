@@ -9,13 +9,14 @@ export {
   polyGetPositions,
   polyGetMarket,
   polyGetPrice,
-  polyStreamPrices, // deprecated alias
   polyGetTrades,
   polyGetBalance,
   polyGetMidpoint,
   polyGetSpread,
   polyGetTickSize,
   polyGetNegRisk,
+  polyDiscoverMarkets,
+  polyCheckResolution,
 } from "./handlers/index.js";
 
 export { PolymarketClient } from "./client.js";
@@ -55,6 +56,11 @@ export type {
   TickSizeResult,
   GetNegRiskParams,
   NegRiskResult,
+  DiscoverMarketsParams,
+  DiscoverMarketsResult,
+  GammaMarket,
+  CheckResolutionParams,
+  ResolutionResult,
 } from "./types.js";
 
 export { PolymarketError } from "./types.js";

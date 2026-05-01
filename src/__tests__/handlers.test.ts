@@ -11,7 +11,7 @@ import {
   polyGetOrderbook,
   polyGetPositions,
   polyGetMarket,
-  polyStreamPrices,
+  polyGetPrice,
   polyGetTrades,
   polyGetBalance,
   polyGetMidpoint,
@@ -76,7 +76,7 @@ describe("polyCreateApiKey", () => {
 describe("polyPlaceOrder", () => {
   it("throws when private_key missing from context", async () => {
     const task = makeTask(
-      { token_id: "t1", side: "BUY", size: "10", price: "0.5" },
+      { token_id: "12345678901234567890", side: "BUY", size: "10", price: "0.5" },
       { api_credentials: validCreds },
     );
     await expect(polyPlaceOrder(task)).rejects.toThrow("private_key missing from context");
@@ -84,7 +84,7 @@ describe("polyPlaceOrder", () => {
 
   it("throws when api_credentials missing from context", async () => {
     const task = makeTask(
-      { token_id: "t1", side: "BUY", size: "10", price: "0.5" },
+      { token_id: "12345678901234567890", side: "BUY", size: "10", price: "0.5" },
       { private_key: "0x" + "a".repeat(64) },
     );
     await expect(polyPlaceOrder(task)).rejects.toThrow("api_credentials missing from context");
@@ -92,7 +92,7 @@ describe("polyPlaceOrder", () => {
 
   it("throws when api_credentials partially present", async () => {
     const task = makeTask(
-      { token_id: "t1", side: "BUY", size: "10", price: "0.5" },
+      { token_id: "12345678901234567890", side: "BUY", size: "10", price: "0.5" },
       { private_key: "0x" + "a".repeat(64), api_credentials: { api_key: "k" } },
     );
     await expect(polyPlaceOrder(task)).rejects.toThrow("api_credentials missing from context");
@@ -100,7 +100,7 @@ describe("polyPlaceOrder", () => {
 
   it("throws when required params missing", async () => {
     const task = makeTask(
-      { token_id: "t1" },
+      { token_id: "12345678901234567890" },
       { private_key: "0x" + "a".repeat(64), api_credentials: validCreds },
     );
     await expect(polyPlaceOrder(task)).rejects.toThrow("token_id, side, size, and price are required");
@@ -158,7 +158,7 @@ describe("polyGetOrderbook", () => {
       asks: [{ price: "0.55", size: "100" }],
     };
     mockFetch.mockResolvedValueOnce(jsonResponse(rawBook));
-    const result = await polyGetOrderbook(makeTask({ token_id: "t1" })) as Record<string, unknown>;
+    const result = await polyGetOrderbook(makeTask({ token_id: "12345678901234567890" })) as Record<string, unknown>;
     expect(result).toHaveProperty("spread");
     expect(result).toHaveProperty("mid_price");
   });
@@ -198,15 +198,16 @@ describe("polyGetMarket", () => {
   });
 });
 
-describe("polyStreamPrices", () => {
+describe("polyGetPrice", () => {
   it("throws when token_id is missing", async () => {
-    await expect(polyStreamPrices(makeTask({}))).rejects.toThrow("token_id is required");
+    await expect(polyGetPrice(makeTask({}))).rejects.toThrow("token_id is required");
   });
 
   it("returns price without threshold", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.65" }));
-    const result = await polyStreamPrices(makeTask({ token_id: "t1" })) as Record<string, unknown>;
-    expect(result).toHaveProperty("price", "0.65");
+    const result = await polyGetPrice(makeTask({ token_id: "12345678901234567890" })) as Record<string, unknown>;
+    expect(result).toHaveProperty("price", 0.65);
+    expect(result).toHaveProperty("price_raw", "0.65");
     expect(result).toHaveProperty("threshold_triggered", false);
     expect(result).toHaveProperty("trigger_direction", null);
   });
@@ -214,10 +215,10 @@ describe("polyStreamPrices", () => {
   it("triggers above threshold", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.80" }));
     const task = makeTask({
-      token_id: "t1",
+      token_id: "12345678901234567890",
       price_threshold: { above: "0.75" },
     });
-    const result = await polyStreamPrices(task) as Record<string, unknown>;
+    const result = await polyGetPrice(task) as Record<string, unknown>;
     expect(result).toHaveProperty("threshold_triggered", true);
     expect(result).toHaveProperty("trigger_direction", "above");
   });
@@ -225,10 +226,10 @@ describe("polyStreamPrices", () => {
   it("triggers below threshold", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.20" }));
     const task = makeTask({
-      token_id: "t1",
+      token_id: "12345678901234567890",
       price_threshold: { below: "0.25" },
     });
-    const result = await polyStreamPrices(task) as Record<string, unknown>;
+    const result = await polyGetPrice(task) as Record<string, unknown>;
     expect(result).toHaveProperty("threshold_triggered", true);
     expect(result).toHaveProperty("trigger_direction", "below");
   });
@@ -236,10 +237,10 @@ describe("polyStreamPrices", () => {
   it("does not trigger when price is within thresholds", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.50" }));
     const task = makeTask({
-      token_id: "t1",
+      token_id: "12345678901234567890",
       price_threshold: { above: "0.75", below: "0.25" },
     });
-    const result = await polyStreamPrices(task) as Record<string, unknown>;
+    const result = await polyGetPrice(task) as Record<string, unknown>;
     expect(result).toHaveProperty("threshold_triggered", false);
     expect(result).toHaveProperty("trigger_direction", null);
   });
@@ -247,10 +248,10 @@ describe("polyStreamPrices", () => {
   it("below threshold takes precedence when both trigger", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ price: "0.10" }));
     const task = makeTask({
-      token_id: "t1",
+      token_id: "12345678901234567890",
       price_threshold: { above: "0.05", below: "0.25" },
     });
-    const result = await polyStreamPrices(task) as Record<string, unknown>;
+    const result = await polyGetPrice(task) as Record<string, unknown>;
     expect(result).toHaveProperty("threshold_triggered", true);
     expect(result).toHaveProperty("trigger_direction", "below");
   });
@@ -263,14 +264,14 @@ describe("polyGetTrades", () => {
   });
 
   it("throws when api_credentials missing", async () => {
-    const task = makeTask({ token_id: "t1" });
+    const task = makeTask({ token_id: "12345678901234567890" });
     await expect(polyGetTrades(task)).rejects.toThrow("api_credentials missing from context");
   });
 
   it("returns trades", async () => {
     const trades = [{ price: "0.5", size: "10", side: "BUY", timestamp: "2025-01-01T00:00:00Z", transaction_hash: "0xabc" }];
     mockFetch.mockResolvedValueOnce(jsonResponse(trades));
-    const task = makeTask({ token_id: "t1" }, { api_credentials: validCreds });
+    const task = makeTask({ token_id: "12345678901234567890" }, { api_credentials: validCreds });
     const result = await polyGetTrades(task);
     expect(result).toEqual(trades);
   });
@@ -278,7 +279,7 @@ describe("polyGetTrades", () => {
   it("passes optional params", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse([]));
     const task = makeTask(
-      { token_id: "t1", limit: 25, before: "cur1", after: "cur2" },
+      { token_id: "12345678901234567890", limit: 25, before: "cur1", after: "cur2" },
       { api_credentials: validCreds },
     );
     await polyGetTrades(task);
@@ -316,7 +317,7 @@ describe("polyGetOrders", () => {
   });
 
   it("returns open orders", async () => {
-    const orders = [{ order_id: "o1", status: "LIVE", market_id: "m1", token_id: "t1", side: "BUY", size: "10", price: "0.5", order_type: "GTC", created_at: "2025-01-01T00:00:00Z" }];
+    const orders = [{ order_id: "o1", status: "LIVE", market_id: "m1", token_id: "12345678901234567890", side: "BUY", size: "10", price: "0.5", order_type: "GTC", created_at: "2025-01-01T00:00:00Z" }];
     mockFetch.mockResolvedValueOnce(jsonResponse(orders));
     const task = makeTask({}, { api_credentials: validCreds });
     const result = await polyGetOrders(task);
@@ -361,9 +362,9 @@ describe("polyGetMidpoint", () => {
 
   it("returns midpoint", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ midpoint: "0.5000" }));
-    const result = await polyGetMidpoint(makeTask({ token_id: "t1" })) as Record<string, unknown>;
+    const result = await polyGetMidpoint(makeTask({ token_id: "12345678901234567890" })) as Record<string, unknown>;
     expect(result).toHaveProperty("midpoint", "0.5000");
-    expect(result).toHaveProperty("token_id", "t1");
+    expect(result).toHaveProperty("token_id", "12345678901234567890");
   });
 });
 
@@ -374,9 +375,9 @@ describe("polyGetSpread", () => {
 
   it("returns spread", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ spread: "0.0200" }));
-    const result = await polyGetSpread(makeTask({ token_id: "t1" })) as Record<string, unknown>;
+    const result = await polyGetSpread(makeTask({ token_id: "12345678901234567890" })) as Record<string, unknown>;
     expect(result).toHaveProperty("spread", "0.0200");
-    expect(result).toHaveProperty("token_id", "t1");
+    expect(result).toHaveProperty("token_id", "12345678901234567890");
   });
 });
 
@@ -387,9 +388,9 @@ describe("polyGetTickSize", () => {
 
   it("returns tick size", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ tick_size: "0.01" }));
-    const result = await polyGetTickSize(makeTask({ token_id: "t1" })) as Record<string, unknown>;
+    const result = await polyGetTickSize(makeTask({ token_id: "12345678901234567890" })) as Record<string, unknown>;
     expect(result).toHaveProperty("tick_size", "0.01");
-    expect(result).toHaveProperty("token_id", "t1");
+    expect(result).toHaveProperty("token_id", "12345678901234567890");
   });
 });
 
@@ -400,9 +401,9 @@ describe("polyGetNegRisk", () => {
 
   it("returns neg risk flag", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ neg_risk: true }));
-    const result = await polyGetNegRisk(makeTask({ token_id: "t1" })) as Record<string, unknown>;
+    const result = await polyGetNegRisk(makeTask({ token_id: "12345678901234567890" })) as Record<string, unknown>;
     expect(result).toHaveProperty("neg_risk", true);
-    expect(result).toHaveProperty("token_id", "t1");
+    expect(result).toHaveProperty("token_id", "12345678901234567890");
   });
 });
 

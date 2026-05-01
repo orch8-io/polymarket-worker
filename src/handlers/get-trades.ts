@@ -1,29 +1,30 @@
 import type { WorkerTask } from "@orch8.io/sdk";
 import { PolymarketClient } from "../client.js";
-import type { ApiCredentials } from "../types.js";
 import { PolymarketError } from "../types.js";
+import { parseParams, parseContext, GetTradesParamsSchema, isValidCreds, sanitizeTokenId } from "../validation.js";
 
 export async function polyGetTrades(task: WorkerTask): Promise<unknown> {
-  const params = task.params as Record<string, unknown>;
-  const context = task.context as Record<string, unknown>;
+  const params = parseParams(GetTradesParamsSchema, task.params);
+  const context = parseContext(task.context);
 
   if (!params.token_id) {
     throw new PolymarketError("token_id is required", 400, false);
   }
+  const tokenId = sanitizeTokenId(params.token_id);
 
-  const creds = context.api_credentials as ApiCredentials | undefined;
-  if (!creds?.api_key || !creds?.api_secret || !creds?.api_passphrase) {
+  const creds = context.api_credentials;
+  if (!isValidCreds(creds)) {
     throw new PolymarketError("api_credentials missing from context", 400, false);
   }
 
   const client = new PolymarketClient();
   return client.getTrades(
-    String(params.token_id),
+    tokenId,
     creds,
     {
-      limit: params.limit ? Number(params.limit) : undefined,
-      before: params.before ? String(params.before) : undefined,
-      after: params.after ? String(params.after) : undefined,
+      limit: params.limit,
+      before: params.before,
+      after: params.after,
     },
   );
 }

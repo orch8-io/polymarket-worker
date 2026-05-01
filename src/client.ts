@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { ethers } from "ethers";
 import {
   type PolymarketConfig,
@@ -15,6 +16,9 @@ import {
   type SpreadResult,
   type TickSizeResult,
   type NegRiskResult,
+  type DiscoverMarketsParams,
+  type DiscoverMarketsResult,
+  type ResolutionResult,
   POLYMARKET_V2_CONFIG,
   EIP712_DOMAIN,
   EIP712_ORDER_DOMAIN,
@@ -22,6 +26,25 @@ import {
   AUTH_TYPES,
   PolymarketError,
 } from "./types.js";
+import {
+  ApiCredentialsResponseSchema,
+  OrderResultResponseSchema,
+  OrderDetailResponseSchema,
+  OrderbookResponseSchema,
+  PositionsResultResponseSchema,
+  MarketResultResponseSchema,
+  PriceResponseSchema,
+  TradesResponseSchema,
+  OpenOrdersResponseSchema,
+  CancelAllResponseSchema,
+  BalanceResponseSchema,
+  MidpointResponseSchema,
+  SpreadResponseSchema,
+  TickSizeResponseSchema,
+  NegRiskResponseSchema,
+  DiscoverMarketsResponseSchema,
+  CheckResolutionResponseSchema,
+} from "./validation.js";
 
 // ── Timeouts ───────────────────────────────────────────────────────────────
 const READ_TIMEOUT_MS = 10_000;
@@ -127,7 +150,7 @@ async function fetchWithRetry(
     }
 
     const backoff = Math.min(BASE_BACKOFF_MS * 2 ** attempt, MAX_BACKOFF_MS);
-    const jitter = Math.random() * 100;
+    const jitter = Math.random() * backoff;
     await new Promise((r) => setTimeout(r, backoff + jitter));
   }
 
@@ -157,13 +180,37 @@ function hmacHeaders(
 
 /** Parse a decimal string into a BigInt with the given number of decimals. */
 function parseDecimal(value: string, decimals: number): bigint {
-  const [intPart = "0", fracPart = ""] = value.split(".");
+  if (!/^-?\d+(\.\d+)?$/.test(value)) {
+    throw new PolymarketError(`Invalid decimal format: ${value}`, 400, false, "INVALID_DECIMAL");
+  }
+  const isNegative = value.startsWith("-");
+  const absValue = isNegative ? value.slice(1) : value;
+  const [intPart = "0", fracPart = ""] = absValue.split(".");
   const padded = (fracPart + "0".repeat(decimals)).slice(0, decimals);
-  return BigInt(intPart + padded);
+  const result = BigInt(intPart + padded);
+  return isNegative ? -result : result;
+}
+
+async function parseJson<T extends z.ZodTypeAny>(res: Response, schema: T): Promise<z.infer<T>> {
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch (e) {
+    throw new PolymarketError("Invalid JSON in API response", 502, true, "INVALID_JSON");
+  }
+  try {
+    return schema.parse(data);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      throw new PolymarketError("Unexpected API response: " + err.message, 502, false, "INVALID_RESPONSE");
+    }
+    throw err;
+  }
 }
 
 export class PolymarketClient {
   private readonly config: PolymarketConfig;
+  private readonly gammaBaseUrl: string;
 
   constructor(config: Partial<PolymarketConfig> = {}) {
     this.config = {
@@ -171,10 +218,16 @@ export class PolymarketClient {
       ...(process.env.POLYMARKET_CLOB_URL && { clobBaseUrl: process.env.POLYMARKET_CLOB_URL }),
       ...config,
     };
+    this.gammaBaseUrl = process.env.POLYMARKET_GAMMA_URL || "https://gamma-api.polymarket.com";
   }
 
   async deriveApiKey(privateKey: string): Promise<ApiCredentials> {
-    const wallet = new ethers.Wallet(privateKey);
+    let wallet: ethers.Wallet;
+    try {
+      wallet = new ethers.Wallet(privateKey);
+    } catch {
+      throw new PolymarketError("Invalid private_key format", 400, false, "INVALID_PRIVATE_KEY");
+    }
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const nonce = 0;
 
@@ -205,7 +258,7 @@ export class PolymarketClient {
       },
     );
 
-    return (await res.json()) as ApiCredentials;
+    return await parseJson(res, ApiCredentialsResponseSchema);
   }
 
   async placeOrder(
@@ -213,22 +266,44 @@ export class PolymarketClient {
     privateKey: string,
     creds: ApiCredentials,
   ): Promise<OrderResult> {
-    const wallet = new ethers.Wallet(privateKey);
+    let wallet: ethers.Wallet;
+    try {
+      wallet = new ethers.Wallet(privateKey);
+    } catch {
+      throw new PolymarketError("Invalid private_key format", 400, false, "INVALID_PRIVATE_KEY");
+    }
+
+    if (!params.size || !params.price) {
+      throw new PolymarketError("Order size and price are required", 400, false);
+    }
+    if (params.size.startsWith("-") || params.price.startsWith("-")) {
+      throw new PolymarketError("Order size/price must be non-negative", 400, false);
+    }
 
     // Use string-based decimal math to avoid floating-point rounding errors.
     const sizeBn = parseDecimal(params.size, 6);
     const priceBn = parseDecimal(params.price, 6);
+    // Integer division truncates; amounts are in 6-decimal fixed point.
+    // Polymarket's minimum tick size prevents rounding to zero in practice.
     const notionalBn = (sizeBn * priceBn) / 1_000_000n;
+    if (notionalBn === 0n) {
+      throw new PolymarketError("Order notional too small (rounded to zero)", 400, false, "ORDER_TOO_SMALL");
+    }
 
     const makerAmount = params.side === "BUY" ? notionalBn : sizeBn;
     const takerAmount = params.side === "BUY" ? sizeBn : notionalBn;
 
     const salt = BigInt(ethers.hexlify(ethers.randomBytes(32)));
 
-    const expiration =
-      params.order_type === "GTD" && params.expiration
-        ? BigInt(params.expiration)
-        : 0n;
+    let expiration: bigint;
+    if (params.order_type === "GTD" && params.expiration !== undefined) {
+      if (!Number.isInteger(params.expiration) || params.expiration < 0) {
+        throw new PolymarketError("expiration must be a non-negative integer", 400, false);
+      }
+      expiration = BigInt(params.expiration);
+    } else {
+      expiration = 0n;
+    }
 
     const orderData = {
       salt,
@@ -278,7 +353,7 @@ export class PolymarketClient {
       timeoutMs: WRITE_TIMEOUT_MS,
     });
 
-    return (await res.json()) as OrderResult;
+    return await parseJson(res, OrderResultResponseSchema);
   }
 
   async cancelOrder(
@@ -290,17 +365,12 @@ export class PolymarketClient {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const headers = hmacHeaders(creds, "DELETE", path, body, timestamp);
 
-    const res = await fetchWithRetry(`${this.config.clobBaseUrl}${path}`, {
+    await fetchWithRetry(`${this.config.clobBaseUrl}${path}`, {
       method: "DELETE",
       headers: { ...headers, "Content-Type": "application/json" },
       body,
       timeoutMs: WRITE_TIMEOUT_MS,
     });
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw classifyError(res.status, text);
-    }
 
     return { cancelled: true, order_id: orderId };
   }
@@ -310,7 +380,7 @@ export class PolymarketClient {
       `${this.config.clobBaseUrl}/order/${encodeURIComponent(orderId)}`,
     );
 
-    return (await res.json()) as OrderDetail;
+    return await parseJson(res, OrderDetailResponseSchema);
   }
 
   async getOrderbook(tokenId: string): Promise<OrderbookResult> {
@@ -318,17 +388,15 @@ export class PolymarketClient {
       `${this.config.clobBaseUrl}/book?token_id=${encodeURIComponent(tokenId)}`,
     );
 
-    const data = (await res.json()) as {
-      bids: Array<{ price: string; size: string }>;
-      asks: Array<{ price: string; size: string }>;
-    };
+    const data = await parseJson(res, OrderbookResponseSchema);
 
     const bestBid = data.bids[0]?.price ?? "0";
     const bestAsk = data.asks[0]?.price ?? "0";
     const bidNum = parseFloat(bestBid);
     const askNum = parseFloat(bestAsk);
 
-    // Guard against zero/invalid ask prices.
+    // Spread and mid_price use parseFloat and toFixed(4) for display.
+    // This is acceptable for human-readable output; raw prices remain as strings.
     const spread = askNum > 0 && bidNum >= 0 ? (askNum - bidNum).toFixed(4) : "0";
     const midPrice = askNum > 0 && bidNum >= 0 ? ((askNum + bidNum) / 2).toFixed(4) : "0";
 
@@ -345,7 +413,7 @@ export class PolymarketClient {
       `${this.config.clobBaseUrl}/positions?address=${encodeURIComponent(accountAddress)}`,
     );
 
-    return (await res.json()) as PositionsResult;
+    return await parseJson(res, PositionsResultResponseSchema);
   }
 
   async getMarket(marketId: string): Promise<MarketResult> {
@@ -353,15 +421,15 @@ export class PolymarketClient {
       `${this.config.clobBaseUrl}/markets/${encodeURIComponent(marketId)}`,
     );
 
-    return (await res.json()) as MarketResult;
+    return await parseJson(res, MarketResultResponseSchema);
   }
 
-  async getPrice(tokenId: string): Promise<string> {
+  async getPrice(tokenId: string, side: "BUY" | "SELL" = "BUY"): Promise<string> {
     const res = await fetchWithRetry(
-      `${this.config.clobBaseUrl}/price?token_id=${encodeURIComponent(tokenId)}`,
+      `${this.config.clobBaseUrl}/price?token_id=${encodeURIComponent(tokenId)}&side=${side}`,
     );
 
-    const data = (await res.json()) as { price: string };
+    const data = await parseJson(res, PriceResponseSchema);
     return data.price;
   }
 
@@ -386,13 +454,7 @@ export class PolymarketClient {
       headers: { ...headers, "Content-Type": "application/json" },
     });
 
-    return (await res.json()) as Array<{
-      price: string;
-      size: string;
-      side: string;
-      timestamp: string;
-      transaction_hash: string;
-    }>;
+    return await parseJson(res, TradesResponseSchema);
   }
 
   async getOrders(
@@ -411,7 +473,7 @@ export class PolymarketClient {
       headers: { ...headers, "Content-Type": "application/json" },
     });
 
-    return (await res.json()) as OpenOrder[];
+    return await parseJson(res, OpenOrdersResponseSchema);
   }
 
   async cancelAllOrders(
@@ -432,13 +494,8 @@ export class PolymarketClient {
       timeoutMs: WRITE_TIMEOUT_MS,
     });
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw classifyError(res.status, text);
-    }
-
-    const data = (await res.json()) as { cancelled?: number[] };
-    const count = data.cancelled?.length ?? 0;
+    const data = await parseJson(res, CancelAllResponseSchema);
+    const count = data.cancelled.length;
     return { cancelled: true, count };
   }
 
@@ -454,7 +511,7 @@ export class PolymarketClient {
       headers: { ...headers, "Content-Type": "application/json" },
     });
 
-    return (await res.json()) as BalanceAllowanceResult;
+    return await parseJson(res, BalanceResponseSchema);
   }
 
   async getMidpoint(tokenId: string): Promise<MidpointResult> {
@@ -462,7 +519,7 @@ export class PolymarketClient {
       `${this.config.clobBaseUrl}/midpoint?token_id=${encodeURIComponent(tokenId)}`,
     );
 
-    const data = (await res.json()) as { midpoint: string };
+    const data = await parseJson(res, MidpointResponseSchema);
     return {
       token_id: tokenId,
       midpoint: data.midpoint,
@@ -475,7 +532,7 @@ export class PolymarketClient {
       `${this.config.clobBaseUrl}/spread?token_id=${encodeURIComponent(tokenId)}`,
     );
 
-    const data = (await res.json()) as { spread: string };
+    const data = await parseJson(res, SpreadResponseSchema);
     return {
       token_id: tokenId,
       spread: data.spread,
@@ -488,7 +545,7 @@ export class PolymarketClient {
       `${this.config.clobBaseUrl}/tick-size/${encodeURIComponent(tokenId)}`,
     );
 
-    const data = (await res.json()) as { tick_size: string };
+    const data = await parseJson(res, TickSizeResponseSchema);
     return {
       token_id: tokenId,
       tick_size: data.tick_size,
@@ -500,10 +557,54 @@ export class PolymarketClient {
       `${this.config.clobBaseUrl}/neg-risk/${encodeURIComponent(tokenId)}`,
     );
 
-    const data = (await res.json()) as { neg_risk: boolean };
+    const data = await parseJson(res, NegRiskResponseSchema);
     return {
       token_id: tokenId,
       neg_risk: data.neg_risk,
+    };
+  }
+
+  // ── Gamma API (market discovery) ──────────────────────────────────────────
+
+  async discoverMarkets(params: DiscoverMarketsParams = {}): Promise<DiscoverMarketsResult> {
+    const qs = new URLSearchParams();
+    if (params.limit !== undefined) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined) qs.set("offset", String(params.offset));
+    if (params.order) qs.set("order", params.order);
+    if (params.ascending !== undefined) qs.set("ascending", String(params.ascending));
+    if (params.closed !== undefined) qs.set("closed", String(params.closed));
+    if (params.active !== undefined) qs.set("active", String(params.active));
+    if (params.tag) qs.set("tag", params.tag);
+    if (params.end_date_min) qs.set("end_date_min", params.end_date_min);
+    if (params.end_date_max) qs.set("end_date_max", params.end_date_max);
+
+    const url = `${this.gammaBaseUrl}/markets?${qs.toString()}`;
+    const res = await fetchWithRetry(url);
+    const markets = await parseJson(res, DiscoverMarketsResponseSchema);
+    return { markets, count: markets.length };
+  }
+
+  async checkResolution(conditionId: string): Promise<ResolutionResult> {
+    const qs = new URLSearchParams({ condition_id: conditionId });
+    const res = await fetchWithRetry(`${this.gammaBaseUrl}/markets?${qs.toString()}`);
+    const markets = await parseJson(res, z.array(CheckResolutionResponseSchema));
+
+    if (!markets.length) {
+      throw new PolymarketError(
+        `Market not found for condition_id: ${conditionId}`,
+        404,
+        false,
+        "NOT_FOUND",
+      );
+    }
+
+    const data = markets[0];
+    const payouts = data.payoutNumerators;
+    return {
+      condition_id: conditionId,
+      resolved: Array.isArray(payouts) && payouts.length > 0,
+      payout_numerators: payouts,
+      resolution_source: data.resolutionSource,
     };
   }
 }

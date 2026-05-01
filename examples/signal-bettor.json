@@ -1,0 +1,315 @@
+{
+  "name": "polymarket-signal-bettor",
+  "version": 1,
+  "blocks": [
+    {
+      "type": "step",
+      "id": "get_market",
+      "handler": "poly_get_market",
+      "params": {
+        "market_id": "{{context.data.condition_id}}"
+      },
+      "retry": {
+        "max_attempts": 3,
+        "initial_backoff": 1000,
+        "max_backoff": 5000,
+        "backoff_multiplier": 2.0
+      },
+      "rate_limit_key": "polymarket_read"
+    },
+    {
+      "type": "parallel",
+      "id": "fetch_prices",
+      "branches": [
+        [
+          {
+            "type": "step",
+            "id": "yes_price",
+            "handler": "poly_get_price",
+            "params": {
+              "token_id": "{{outputs.get_market.tokens.0.token_id}}"
+            },
+            "rate_limit_key": "polymarket_read"
+          }
+        ],
+        [
+          {
+            "type": "step",
+            "id": "no_price",
+            "handler": "poly_get_price",
+            "params": {
+              "token_id": "{{outputs.get_market.tokens.1.token_id}}"
+            },
+            "rate_limit_key": "polymarket_read"
+          }
+        ],
+        [
+          {
+            "type": "step",
+            "id": "orderbook",
+            "handler": "poly_get_orderbook",
+            "params": {
+              "token_id": "{{outputs.get_market.tokens.0.token_id}}"
+            },
+            "rate_limit_key": "polymarket_read"
+          }
+        ]
+      ]
+    },
+    {
+      "type": "step",
+      "id": "research",
+      "handler": "llm_call",
+      "params": {
+        "provider": "openai",
+        "model": "gpt-4o",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are a prediction market analyst. Analyze the market question, current prices, and orderbook depth. Estimate the true probability using publicly available information and reasoning.\n\nReturn JSON:\n{\n  \"estimated_probability\": number (0-1),\n  \"confidence\": number (0-1),\n  \"recommendation\": \"BUY_YES\" | \"BUY_NO\" | \"HOLD\",\n  \"edge_bps\": number (estimated edge in basis points),\n  \"reasoning\": \"one paragraph explanation\",\n  \"risk_factors\": [\"list of key risks\"]\n}\n\nGuidelines:\n- HOLD if confidence < 0.65 or edge < 200bps\n- BUY_YES if estimated_probability significantly > current YES price\n- BUY_NO if estimated_probability significantly < current YES price\n- Consider liquidity and time to resolution\n- Be conservative — false confidence is worse than missing a trade"
+          },
+          {
+            "role": "user",
+            "content": "Market: {{outputs.get_market.question}}\nYES price: {{outputs.yes_price.price}}\nNO price: {{outputs.no_price.price}}\nOrderbook spread: {{outputs.orderbook.spread}}\nOrderbook mid: {{outputs.orderbook.mid_price}}\nVolume: {{outputs.get_market.volume}}\nLiquidity: {{outputs.get_market.liquidity}}\nEnd date: {{outputs.get_market.end_date}}\nBet size: ${{context.data.bet_size}}"
+          }
+        ],
+        "response_format": { "type": "json_object" }
+      },
+      "timeout": 60000
+    },
+    {
+      "type": "step",
+      "id": "log_analysis",
+      "handler": "log",
+      "params": {
+        "message": "Analysis: rec={{outputs.research.recommendation}} confidence={{outputs.research.confidence}} edge={{outputs.research.edge_bps}}bps | {{outputs.research.reasoning}}",
+        "level": "info"
+      }
+    },
+    {
+      "type": "router",
+      "id": "decide",
+      "routes": [
+        {
+          "condition": "outputs.research.recommendation == 'BUY_YES' && outputs.research.confidence >= 0.65 && outputs.research.edge_bps >= 200",
+          "blocks": [
+            {
+              "type": "step",
+              "id": "approve_yes",
+              "handler": "log",
+              "params": {
+                "message": "APPROVAL REQUIRED: BUY YES @ {{outputs.yes_price.price}} | Size: ${{context.data.bet_size}} | Edge: {{outputs.research.edge_bps}}bps | Confidence: {{outputs.research.confidence}}",
+                "level": "info"
+              },
+              "wait_for_input": {
+                "prompt": "Approve BUY YES order?",
+                "timeout": 3600000
+              }
+            },
+            {
+              "type": "try_catch",
+              "id": "execute_yes",
+              "try_block": [
+                {
+                  "type": "step",
+                  "id": "buy_yes",
+                  "handler": "poly_place_order",
+                  "params": {
+                    "token_id": "{{outputs.get_market.tokens.0.token_id}}",
+                    "side": "BUY",
+                    "size": "{{context.data.bet_size}}",
+                    "price": "{{outputs.yes_price.price}}",
+                    "order_type": "GTC"
+                  },
+                  "retry": {
+                    "max_attempts": 2,
+                    "initial_backoff": 2000,
+                    "max_backoff": 10000,
+                    "backoff_multiplier": 2.0
+                  },
+                  "rate_limit_key": "polymarket_write",
+                  "timeout": 30000
+                },
+                {
+                  "type": "step",
+                  "id": "log_yes_placed",
+                  "handler": "log",
+                  "params": {
+                    "message": "ORDER PLACED: BUY YES order_id={{outputs.buy_yes.order_id}} status={{outputs.buy_yes.status}}",
+                    "level": "info"
+                  }
+                },
+                {
+                  "type": "loop",
+                  "id": "monitor_yes",
+                  "condition": "outputs.check_yes.status == 'LIVE'",
+                  "max_iterations": 60,
+                  "body": [
+                    {
+                      "type": "step",
+                      "id": "wait_yes",
+                      "handler": "sleep",
+                      "params": { "duration_ms": 30000 }
+                    },
+                    {
+                      "type": "step",
+                      "id": "check_yes",
+                      "handler": "poly_get_order",
+                      "params": {
+                        "order_id": "{{outputs.buy_yes.order_id}}"
+                      },
+                      "rate_limit_key": "polymarket_read"
+                    }
+                  ]
+                },
+                {
+                  "type": "step",
+                  "id": "log_yes_result",
+                  "handler": "log",
+                  "params": {
+                    "message": "ORDER RESULT: order_id={{outputs.buy_yes.order_id}} final_status={{outputs.check_yes.status}} matched={{outputs.check_yes.size_matched}}",
+                    "level": "info"
+                  }
+                }
+              ],
+              "catch_block": [
+                {
+                  "type": "step",
+                  "id": "log_yes_error",
+                  "handler": "log",
+                  "params": {
+                    "message": "ORDER FAILED: BUY YES error={{error.message}}",
+                    "level": "error"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "condition": "outputs.research.recommendation == 'BUY_NO' && outputs.research.confidence >= 0.65 && outputs.research.edge_bps >= 200",
+          "blocks": [
+            {
+              "type": "step",
+              "id": "approve_no",
+              "handler": "log",
+              "params": {
+                "message": "APPROVAL REQUIRED: BUY NO @ {{outputs.no_price.price}} | Size: ${{context.data.bet_size}} | Edge: {{outputs.research.edge_bps}}bps | Confidence: {{outputs.research.confidence}}",
+                "level": "info"
+              },
+              "wait_for_input": {
+                "prompt": "Approve BUY NO order?",
+                "timeout": 3600000
+              }
+            },
+            {
+              "type": "try_catch",
+              "id": "execute_no",
+              "try_block": [
+                {
+                  "type": "step",
+                  "id": "buy_no",
+                  "handler": "poly_place_order",
+                  "params": {
+                    "token_id": "{{outputs.get_market.tokens.1.token_id}}",
+                    "side": "BUY",
+                    "size": "{{context.data.bet_size}}",
+                    "price": "{{outputs.no_price.price}}",
+                    "order_type": "GTC"
+                  },
+                  "retry": {
+                    "max_attempts": 2,
+                    "initial_backoff": 2000,
+                    "max_backoff": 10000,
+                    "backoff_multiplier": 2.0
+                  },
+                  "rate_limit_key": "polymarket_write",
+                  "timeout": 30000
+                },
+                {
+                  "type": "step",
+                  "id": "log_no_placed",
+                  "handler": "log",
+                  "params": {
+                    "message": "ORDER PLACED: BUY NO order_id={{outputs.buy_no.order_id}} status={{outputs.buy_no.status}}",
+                    "level": "info"
+                  }
+                },
+                {
+                  "type": "loop",
+                  "id": "monitor_no",
+                  "condition": "outputs.check_no.status == 'LIVE'",
+                  "max_iterations": 60,
+                  "body": [
+                    {
+                      "type": "step",
+                      "id": "wait_no",
+                      "handler": "sleep",
+                      "params": { "duration_ms": 30000 }
+                    },
+                    {
+                      "type": "step",
+                      "id": "check_no",
+                      "handler": "poly_get_order",
+                      "params": {
+                        "order_id": "{{outputs.buy_no.order_id}}"
+                      },
+                      "rate_limit_key": "polymarket_read"
+                    }
+                  ]
+                },
+                {
+                  "type": "step",
+                  "id": "log_no_result",
+                  "handler": "log",
+                  "params": {
+                    "message": "ORDER RESULT: order_id={{outputs.buy_no.order_id}} final_status={{outputs.check_no.status}} matched={{outputs.check_no.size_matched}}",
+                    "level": "info"
+                  }
+                }
+              ],
+              "catch_block": [
+                {
+                  "type": "step",
+                  "id": "log_no_error",
+                  "handler": "log",
+                  "params": {
+                    "message": "ORDER FAILED: BUY NO error={{error.message}}",
+                    "level": "error"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "default": [
+        {
+          "type": "step",
+          "id": "hold",
+          "handler": "log",
+          "params": {
+            "message": "HOLD — rec={{outputs.research.recommendation}} confidence={{outputs.research.confidence}} edge={{outputs.research.edge_bps}}bps | Risks: {{outputs.research.risk_factors}}",
+            "level": "info"
+          }
+        }
+      ]
+    },
+    {
+      "type": "step",
+      "id": "final_balance",
+      "handler": "poly_get_balance",
+      "params": {},
+      "rate_limit_key": "polymarket_read"
+    },
+    {
+      "type": "step",
+      "id": "log_balance",
+      "handler": "log",
+      "params": {
+        "message": "BALANCE: {{outputs.final_balance.balance}} USDC | Allowance: {{outputs.final_balance.allowance}}",
+        "level": "info"
+      }
+    }
+  ]
+}

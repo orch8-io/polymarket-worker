@@ -1,14 +1,15 @@
 import type { WorkerTask } from "@orch8.io/sdk";
 import { PolymarketClient } from "../client.js";
-import type { GetOrderParams } from "../types.js";
 import { PolymarketError } from "../types.js";
+import { parseParams, GetOrderParamsSchema, sanitizeOrderId } from "../validation.js";
 
 export async function polyGetOrder(task: WorkerTask): Promise<unknown> {
-  const params = task.params as GetOrderParams;
+  const params = parseParams(GetOrderParamsSchema, task.params);
   if (!params.order_id) {
     throw new PolymarketError("order_id is required", 400, false);
   }
+  const orderId = sanitizeOrderId(params.order_id);
 
   const client = new PolymarketClient();
-  return client.getOrder(params.order_id);
+  return client.getOrder(orderId);
 }

@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { Orch8Worker } from "@orch8.io/sdk";
+import { Orch8Worker, Orch8Client } from "@orch8.io/sdk";
 import {
   polyCreateApiKey,
   polyPlaceOrder,
@@ -17,6 +17,8 @@ import {
   polyGetSpread,
   polyGetTickSize,
   polyGetNegRisk,
+  polyDiscoverMarkets,
+  polyCheckResolution,
 } from "./handlers/index.js";
 
 const engineUrl = process.env.ORCH8_URL || "http://localhost:8080";
@@ -58,9 +60,16 @@ healthServer.listen(healthPort, () => {
 });
 
 // ── Worker ─────────────────────────────────────────────────────────────────
+const apiKey = process.env.ORCH8_API_KEY || "";
+const client = new Orch8Client({
+  baseUrl: engineUrl,
+  ...(apiKey && { headers: { "x-api-key": apiKey } }),
+});
+
 const worker = new Orch8Worker({
   engineUrl,
   workerId,
+  client,
   maxConcurrent: 50,
   circuitBreakerCheck: true,
   handlers: {
@@ -81,6 +90,8 @@ const worker = new Orch8Worker({
     poly_get_spread: polyGetSpread,
     poly_get_tick_size: polyGetTickSize,
     poly_get_neg_risk: polyGetNegRisk,
+    poly_discover_markets: polyDiscoverMarkets,
+    poly_check_resolution: polyCheckResolution,
   },
   onTaskComplete: (task, output) => {
     log("info", "Task completed", {
