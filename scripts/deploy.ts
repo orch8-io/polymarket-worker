@@ -14,6 +14,8 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ORCH8_URL = process.env.ORCH8_URL ?? "http://localhost:8080";
+const TENANT_ID = process.env.ORCH8_TENANT_ID ?? "default";
+const NAMESPACE = process.env.ORCH8_NAMESPACE ?? "default";
 
 const sequencePath = resolve(__dirname, "../examples/signal-bettor.json");
 const sequenceDef = JSON.parse(readFileSync(sequencePath, "utf-8"));
@@ -33,8 +35,8 @@ for (const block of sequenceDef.blocks) {
 
 const payload = {
   id: crypto.randomUUID(),
-  tenant_id: "polymarket",
-  namespace: "default",
+  tenant_id: TENANT_ID,
+  namespace: NAMESPACE,
   name: sequenceDef.name,
   version: sequenceDef.version,
   created_at: new Date().toISOString(),

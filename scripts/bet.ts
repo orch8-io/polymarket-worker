@@ -22,6 +22,8 @@
 import { ethers } from "ethers";
 
 const ORCH8_URL = process.env.ORCH8_URL ?? "http://localhost:8080";
+const TENANT_ID = process.env.ORCH8_TENANT_ID ?? "default";
+const NAMESPACE = process.env.ORCH8_NAMESPACE ?? "default";
 
 // ── Parse CLI args ────────────────────────────────────────────────────────────
 
@@ -134,7 +136,7 @@ if (!market.active) {
 
 console.log(`\nLooking up sequence...`);
 const seqRes = await fetch(
-  `${ORCH8_URL}/sequences?name=polymarket-signal-bettor&tenant_id=polymarket&namespace=default`,
+  `${ORCH8_URL}/sequences?name=polymarket-signal-bettor&tenant_id=${TENANT_ID}&namespace=${NAMESPACE}`,
 );
 
 if (!seqRes.ok) {
@@ -156,8 +158,8 @@ console.log(`Using sequence: ${seq.name} v${seq.version} (${seq.id})`);
 
 const instance = {
   sequence_id: seq.id,
-  tenant_id: "polymarket",
-  namespace: "default",
+  tenant_id: TENANT_ID,
+  namespace: NAMESPACE,
   context: {
     data: {
       condition_id: conditionId,

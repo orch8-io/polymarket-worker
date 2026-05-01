@@ -2,6 +2,10 @@
 
 Polymarket V2 CLOB connector for the Orch8 workflow engine. Enables prediction market trading through declarative workflow tasks.
 
+## What is Orch8?
+
+Orch8 is a durable workflow engine that orchestrates multi-step, long-running processes across workers. This package provides a **worker** that connects to the Orch8 engine and exposes Polymarket trading operations as declarative tasks. You can use it standalone (programmatically via `PolymarketClient`) or as part of an Orch8 workflow.
+
 ## Setup
 
 ```bash
@@ -41,7 +45,6 @@ All handlers receive a `WorkerTask` from the Orch8 engine with `params` and `con
 | `poly_get_positions` | Get account positions | `account_address` | - |
 | `poly_get_market` | Get market details and token prices | `market_id` | - |
 | `poly_get_price` | Get current token price | `token_id` | - |
-| `poly_stream_prices` | Check price against thresholds (alias) | `token_id` | - |
 | `poly_get_trades` | Get trade history for a token | `token_id` | `api_credentials` |
 | `poly_get_balance` | Get balance and allowance | `address` (optional) | `api_credentials` |
 | `poly_get_midpoint` | Get midpoint price | `token_id` | - |
@@ -97,22 +100,6 @@ Order types: `GTC` (good-til-cancelled), `GTD` (good-til-date, requires `expirat
 
 Returns: `{ order_id, status, size_matched, price, timestamp, transaction_hash? }`
 
-#### `poly_stream_prices`
-
-Fetches the current price and checks against optional thresholds. Despite the name, this is a single price check, not a streaming connection. Use it in a polling workflow loop for price monitoring.
-
-```json
-{
-  "token_id": "12345",
-  "price_threshold": {
-    "above": "0.75",
-    "below": "0.25"
-  }
-}
-```
-
-Returns: `{ price, timestamp, threshold_triggered, trigger_direction }`
-
 ### Error Handling
 
 All handlers throw `PolymarketError` with structured error information:
@@ -143,7 +130,7 @@ A typical trading workflow using these handlers:
 3. poly_get_orderbook       → check liquidity and spread
 4. poly_place_order         → submit order
 5. poly_get_order           → poll for fill status
-6. poly_stream_prices       → monitor position (in loop)
+6. poly_get_price           → monitor position (in loop)
 ```
 
 ## Architecture

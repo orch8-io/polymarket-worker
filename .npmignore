@@ -1,0 +1,30 @@
+# Source & tests
+src/
+__tests__/
+*.test.ts
+vitest.config.ts
+tsconfig.json
+
+# Scripts & examples (not part of published package)
+scripts/
+examples/
+
+# Dev artifacts
+dist/**/*.map
+
+# Environment & secrets
+.env*
+*.local
+
+# Git & CI
+.github/
+.gitignore
+.gitattributes
+
+# Documentation (README and LICENSE are included by npm automatically)
+docs/
+
+# Misc
+node_modules/
+coverage/
+*.log
