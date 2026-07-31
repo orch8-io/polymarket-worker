@@ -1,6 +1,6 @@
 {
   "name": "@orch8.io/polymarket-worker",
-  "version": "0.1.0",
+  "version": "0.7.0",
   "description": "Polymarket V2 CLOB connector for Orch8 workflow engine",
   "type": "module",
   "main": "dist/index.js",
@@ -14,7 +14,9 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/__tests__",
+    "!dist/**/*.map"
   ],
   "scripts": {
     "build": "tsc",
@@ -32,7 +34,7 @@
   ],
   "license": "BUSL-1.1",
   "dependencies": {
-    "@orch8.io/sdk": "^0.1.0",
+    "@orch8.io/sdk": "^0.7.0",
     "ethers": "^6.13.0",
     "zod": "^4.4.1"
   },
@@ -43,6 +45,14 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orch8-io/polymarket-worker.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "optionalDependencies": {
     "@rollup/rollup-linux-x64-gnu": "4.60.2"
